@@ -8,3 +8,8 @@ documentation/export.txt
 build/
 build-m3/
 build-m3/
+build-m3-prop/
+tools/bench/**/*.bin
+tools/bench/**/*.elf
+tools/bench/**/*.map
+tools/bench/**/*.exe
