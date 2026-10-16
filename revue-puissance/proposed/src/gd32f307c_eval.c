@@ -84,14 +84,11 @@ void  gd_eval_hall_init (void)
     rcu_periph_clock_enable(RCU_AF);
     //gpio_pin_remap_config(AFIO_PCF0_TIMER2_REMAP, ENABLE); //Remap timer2 Input capture for hallsensors to PC6-PC8
     gpio_pin_remap_config(GPIO_TIMER2_FULL_REMAP,ENABLE);
-    /* configure led GPIO port */
+    /* configure Hall GPIO port : entrées avec pull-up (ODR = 1 sur PC6-PC8, comme le firmware AOCI d'origine : GPIOC ODR = 0x01C0).
+       L'ancien GPIO_BC(...) d'EBiCS mettait ODR = 0 après GPIO_MODE_IPU, ce qui basculait PC6-PC8 en pull-DOWN ! */
     gpio_init(Hall1_GPIO_PORT, GPIO_MODE_IPU, GPIO_OSPEED_50MHZ, Hall1_PIN);
     gpio_init(Hall2_GPIO_PORT, GPIO_MODE_IPU, GPIO_OSPEED_50MHZ, Hall2_PIN);
     gpio_init(Hall3_GPIO_PORT, GPIO_MODE_IPU, GPIO_OSPEED_50MHZ, Hall3_PIN);
-
-    GPIO_BC(Hall1_GPIO_PORT) = Hall1_PIN;
-    GPIO_BC(Hall2_GPIO_PORT) = Hall2_PIN;
-    GPIO_BC(Hall3_GPIO_PORT) = Hall3_PIN;
 }
 
 void  gd_eval_led_init(led_typedef_enum lednum)
