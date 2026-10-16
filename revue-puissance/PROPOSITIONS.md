@@ -51,7 +51,7 @@ Table (fenêtre basse minimale au sommet, tous angles, ticks de 66 MHz, `_T = 20
 | 1700 | 1837 | 163 / 2,5 |
 | 1500 | 1738 | 262 / 4,0 |
 
-**Risque** : courants de phase mesurés pendant une commutation (valeur fausse), donc régulation fausse, donc courant non maîtrisé. Fréquence PWM et temps morts hors des valeurs prévues pour le driver.
+**Effet** : courants de phase mesurés pendant une commutation (valeur fausse), donc régulation fausse, donc courant non maîtrisé. Fréquence PWM et temps morts hors des valeurs prévues pour le driver.
 
 **Proposition** (`proposed/inc/config.h`, `proposed/src/main.c`)
 - `_T = 2000` (66 MHz / 4000 = 16,5 kHz, valeur ARR de l'origine).
@@ -80,7 +80,7 @@ if(MS_FOC->i_d > (PH_CURRENT_MAX<<2)){   // 700 << 2 = 2800
 - Elle boucle dans l'interruption : pas de défaut signalé, pas de verrou propre, le chien de garde est de toute façon rechargé ailleurs (P5).
 - Le firmware AOCI d'origine [V, `analyse-commande-moteur.md`] : trois seuils de courant de phase (80 / 100 / 120 A nominal, ×1 à ×2 selon la température), actions graduées (Vq -20 par période, puis Vq × 0,9375, puis après **6 périodes consécutives** au troisième seuil : défaut, MOE coupé, état 9), et une logique équivalente hors marche.
 
-**Risque** : un court-circuit de phase ou une dérive de la boucle n'est coupé par rien (ni le driver, qui ne protège que contre le haut et bas simultanés).
+**Effet** : un court-circuit de phase ou une dérive de la boucle n'est coupé par rien (ni le driver, qui ne protège que contre le haut et bas simultanés).
 
 **Proposition** (`proposed/src/safety.c`, `proposed/inc/safety.h`)
 - `safety_pwm_off()` : écriture directe du bit MOE (aucun appel de bibliothèque, utilisable dans toute interruption).
@@ -105,7 +105,7 @@ if(MS_FOC->i_d > (PH_CURRENT_MAX<<2)){   // 700 << 2 = 2800
 
 **Proposition** : dans les cinq handlers, `safety_pwm_off(); NVIC_SystemReset();`.
 
-**Pourquoi** : le cas le plus dangereux (code planté avec la puissance active) devient un arrêt immédiat suivi d'un redémarrage propre. Le reset est indispensable aussi parce que le chien de garde (P5) ne protège pas ce cas tant que les interruptions continuent de tourner.
+**Pourquoi** : le cas le plus problematique (code plante avec la PWM active) devient un arret immediat suivi d'un redemarrage propre. Le reset est indispensable aussi parce que le chien de garde (P5) ne protège pas ce cas tant que les interruptions continuent de tourner.
 
 **À vérifier** : le bootloader AOCI après un reset logiciel reste en attente environ 0,5 s sur le CAN avant de relancer l'appli [V, `bootloader/README.md`] ; après un reset par chien de garde il saute directement dans l'appli (pas de fenêtre de reflashage : il faut couper l'alimentation). **Essai à faire** : provoquer un HardFault puissance active (basse puissance) et mesurer le temps de coupure.
 
@@ -215,7 +215,7 @@ Ces chiffres ne contiennent que le PI et la racine : Clarke, Park, sinus / cosin
 
 **Constat [V]** (`autodetect`, `FOC_calculation`) : le moteur est entraîné en boucle ouverte pendant **1080 pas de 1°, 5 ms par pas (5,4 s)** avec **`u_d = 200`** fixe (sur 2048, soit **9,8 % de la tension batterie**, de l'ordre de 3,5 V à 36 V) et `u_q = 0` ; la seule limite est le seuil de surintensité (inopérant avant P2). Cette valeur vient du M820. Le courant résultant = tension / résistance de phase du moteur **AOCI, inconnue [?]** : avec un moteur de résistance de phase de 0,1 à 0,3 Ω, cela fait **12 à 35 A pendant 5,4 s**.
 
-**Risque** : surchauffe des phases et des MOSFET, démagnétisation de rotor improbable mais possible, rotation non maîtrisée si la roue est chargée.
+**Effet** : surchauffe des phases et des MOSFET, démagnétisation de rotor improbable mais possible, rotation non maîtrisée si la roue est chargée.
 
 **Mitigation déjà en place** : la commande 0x6200 n'est plus acceptée que de l'outil PC (`CAN_NODE_BESST`), `autodetect` ne démarre pas si un défaut est verrouillé et s'interrompt sur défaut, le chien de garde est rechargé à chaque pas (proposition).
 

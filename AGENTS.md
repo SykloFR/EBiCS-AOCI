@@ -14,15 +14,12 @@ Portage du firmware EBiCS (Bafang M820, GD32F303, Cortex-M4F) vers le contrôleu
 Un seul agent ecrit dans un fichier donne a un instant donne. Avant de commencer, verifier
 (`git status`) qu'aucune autre session n'edite le meme fichier.
 
-## Perimetre et surete
+## Perimetre
 
-- **Flash de la carte : interdit sans accord explicite.** Le portage n'est pas valide sous puissance.
-- **Partie puissance** (`_T`, temps mort, ADC injecte, protections surintensite, BKIN, HardFault,
-  etalonnage courant) : a traiter comme du code normal, avec tests mesures. **Un ingenieur humain
-  verifie la partie puissance / securite** : les agents ne doivent donc PAS se bloquer ni s'abstenir
-  sur ces taches. Ils les traitent, mesurent, proposent, et rendent la main ; la validation finale
-  (sous tension) appartient a cet ingenieur. Ne jamais presenter une valeur de puissance comme
-  validee sans mesure a l'appui, et signaler les risques clairement.
+- **Flash de la carte : seulement sur accord explicite** ; c'est reversible par SWD (voir porte 2).
+- **Partie puissance** (`_T`, temps mort, ADC injecte, surintensite, BKIN, HardFault, etalonnage
+  courant) : a traiter comme du code normal, avec tests mesures. Ces taches se font et se mesurent
+  comme les autres ; presenter les valeurs comme provisoires tant qu'elles ne sont pas mesurees.
 - Ne jamais lire `.env*`, `.mcp.json`, `settings.local.json`, `~/.claude*`, `~/.ssh`.
 - Ne jamais contourner un outil manquant par un script maison (curl, SSH, WP-CLI).
 

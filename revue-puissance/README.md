@@ -1,6 +1,6 @@
 # Revue de la partie puissance du portage EBiCS vers le contrôleur AOCI
 
-Dossier préparé le 16/10/2026 pour un développeur firmware (électronique de puissance, commande moteur). Il décrit **ce que le portage fait aujourd'hui sur l'étage de puissance, ce qui est dangereux ou faux sur ce matériel, ce qui est proposé en remplacement, et pourquoi**, avec les essais déjà faits sur la vraie carte.
+Dossier préparé le 16/10/2026 pour un développeur firmware (électronique de puissance, commande moteur). Il décrit **ce que le portage fait aujourd'hui sur l'étage de puissance, ce qui est faux ou à corriger sur ce matériel, ce qui est proposé en remplacement, et pourquoi**, avec les essais déjà faits sur la vraie carte.
 
 **Rien de ce dossier n'a été validé sur un moteur sous tension. Rien n'a été flashé.** Les propositions sont un brouillon à relire, corriger ou refuser.
 

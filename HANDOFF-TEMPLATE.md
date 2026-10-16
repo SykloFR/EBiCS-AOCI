@@ -19,7 +19,7 @@ Copier ce bloc, le remplir, le garder dans la session. Un handoff = une tache. P
 
 ## Contraintes
 
-- (flash interdit, puissance : voir AGENTS.md, etc.)
+- (voir AGENTS.md)
 
 ## References
 

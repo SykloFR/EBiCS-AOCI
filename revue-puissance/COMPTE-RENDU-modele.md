@@ -42,7 +42,7 @@ Un bloc par point. Décision : **Accepté** / **Accepté avec modification** / *
 - Justification (technique, mesure, calcul) :
 - Modification apportée au code (fichier, résumé, diff joint) :
 - Essai réalisé (montage, condition, résultat, capture d'écran ou fichier) :
-- Risque résiduel :
+- Point residuel :
 
 ## 4. Réponses aux questions ouvertes
 
@@ -76,7 +76,7 @@ Un bloc par point. Décision : **Accepté** / **Accepté avec modification** / *
 
 Liste des changements à intégrer au code principal (`src/`, `inc/`), avec la raison de chacun. Joindre le diff final.
 
-## 7. Points ouverts et risques
+## 7. Points ouverts
 
 ## 8. Recommandation pour la suite
 
