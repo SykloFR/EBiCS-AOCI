@@ -54,7 +54,7 @@ void read_virtual_eeprom(void);
 void autodetect(void);
 extern volatile uint16_t slow_loop_counter;
 extern uint16_t switchtime[3];
-extern uint32_t timeout;
+extern volatile uint32_t timeout;
 extern uint8_t transmit_mailbox;
 extern can_trasnmit_message_struct transmit_message;
 extern can_receive_message_struct receive_message;
@@ -108,11 +108,17 @@ typedef struct
 	int8_t 			TQfilter;
 	int8_t 			ext_boost_duration;
 	int8_t 			ext_boost_strength;
-	FlagStatus 		pushassist_flag;
-	FlagStatus 		light_flag;
-	FlagStatus 		button_up_flag;
-	FlagStatus 		button_down_flag;
-	FlagStatus 		brake_active_flag;
+	//FlagStatus 		pushassist_flag;
+	//FlagStatus 		light_flag;
+	//FlagStatus 		button_up_flag;
+	//FlagStatus 		button_down_flag;
+	//FlagStatus 		brake_active_flag;
+	/* volatile obligatoire en -Os pour les drapeaux ecrits par CAN / SWD et lus dans la boucle principale */
+	volatile FlagStatus 	pushassist_flag;
+	volatile FlagStatus 	light_flag;
+	volatile FlagStatus 	button_up_flag;
+	volatile FlagStatus 	button_down_flag;
+	volatile FlagStatus 	brake_active_flag;
 
 }MotorState_t;
 

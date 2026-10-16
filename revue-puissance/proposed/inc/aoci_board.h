@@ -15,4 +15,7 @@
 #define LIGHT_REAR_PORT   GPIOA          /* PA15 = JTDI, libérée par la remap SWD seul */
 #define LIGHT_REAR_PIN    GPIO_PIN_15
 
+/* Attente bornee d'une emission CAN (~2 ms max ; sur banc sans transceiver/afficheur, evite de bloquer la boucle principale) */
+#define CAN_TX_TIMEOUT 0x1FFFU
+
 #endif /* AOCI_BOARD_H_ */

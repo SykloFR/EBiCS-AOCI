@@ -123,11 +123,11 @@ uint8_t ui8_hall_state=0;
 uint8_t ui8_hall_state_old=0;
 uint8_t ui8_hall_case=0;
 uint32_t uint32_tics_filtered=128000;
-uint16_t uint16_cadence_filtered=0;
+volatile uint16_t uint16_cadence_filtered=0;
 uint8_t ui8_overflow_flag=0;
 uint8_t ui8_SPEED_control_flag=0;
-uint32_t voltage_raw_cumulated=0;
-uint16_t voltage_raw_filtered=0;
+volatile uint32_t voltage_raw_cumulated=0;
+volatile uint16_t voltage_raw_filtered=0;
 int32_t torque_offset_correction=0;
 uint32_t ui32_erps_cumulated=0;
 int32_t q31_rotorposition_hall=0;
@@ -136,8 +136,8 @@ int8_t i8_recent_rotor_direction=0;
 
 
 uint16_t ui16_tim2_recent=0;
-uint16_t uint16_full_rotation_counter=0;
-uint16_t uint16_half_rotation_counter=0;
+volatile uint16_t uint16_full_rotation_counter=0;
+volatile uint16_t uint16_half_rotation_counter=0;
 uint16_t speedlimitx100_scaled=0;
 int16_t phase_current_max_scaled=0;
 int8_t assist_level_old=0;
@@ -172,7 +172,7 @@ uint8_t shutoffcounter=0;
 uint16_t offroadcode=0;
 volatile uint16_t offroadcounter=0;
 uint16_t pulse_counter=0;
-uint8_t ui_8_PWM_ON_Flag=0;
+volatile uint8_t ui_8_PWM_ON_Flag=0;
 int32_t q31_angle_per_tic=0;
 //Rotor angle scaled from degree to q31 for arm_math. -180Ã‚Â°-->-2^31, 0Ã‚Â°-->0, +180Ã‚Â°-->+2^31
 const int32_t deg_30 = 357913941;
@@ -194,7 +194,7 @@ uint16_t p = 0;
 uint16_t Overrun_strength = 0;
 uint16_t Overrun_counter = 0;
 uint8_t Overrun_flag = 0;
-uint32_t timeout = 0xFFFF;
+volatile uint32_t timeout = 0xFFFF;
 uint8_t transmit_mailbox = 0;
 int32_t battery_current_cumulated=0;
 uint32_t Speedx100_cumulated=0;
@@ -234,10 +234,11 @@ void led_spark(void)
     }
 }
 
-/* REVUE-PUISSANCE P6 : attente bornee du drapeau pose par TIMER1 (4 kHz). Une periode dure 250 us ; 20 ms sans drapeau = declenchement absent. */
+/* REVUE-PUISSANCE P6 : attente bornee du drapeau pose par TIMER1 (4 kHz). Une periode dure 250 us ;
+   a ~6 cycles par tour de boucle, SystemCoreClock / 300U = 220 000 tours ~= 20 ms sans drapeau = declenchement absent. */
 static uint8_t wait_reg_adc_flag(void)
 {
-    uint32_t guard = SystemCoreClock / 50U;   /* ~20 ms en nombre de tours de boucle (> 20 ms car un tour dure plus d'un cycle) */
+    uint32_t guard = SystemCoreClock / 300U;
     while(!reg_ADC_flag && --guard){ }
     return guard ? 1U : 0U;
 }
@@ -298,12 +299,12 @@ int main(void)
 	//SCB->VTOR = 0x08004000;
 	/* REVUE-PUISSANCE P5 : chien de garde ~200 ms (/16 -> 2,5 kHz, 500 coups). L'ancien fwdgt_config(65000, DIV256) etait tronque
 	   a 12 bits (65000 -> 3560, ~23 s) et le chien n'etait de toute facon jamais demarre (pas de fwdgt_enable). Demarre plus bas,
-	   apres l'initialisation (les attentes du demarrage durent ~0,6 s). L'origine AOCI : /16, 4000 coups = 1,6 s. */
-	fwdgt_config(500, FWDGT_PSC_DIV16);
+	   apres l'initialisation (les attentes du demarrage durent ~0,6 s). L'origine AOCI : /16, 4000 coups = 1,6 s.
+	   NB : dans gd32f10x_fwdgt.c, fwdgt_config() ecrit FWDGT_KEY_ENABLE (0xCCCC) et demarre immediatement l'IWDG !
+	   On configure donc uniquement au moment d'activer le chien de garde, apres les boucles de stabilisation ADC. */
 #ifdef __FIRMWARE_VERSION_DEFINE
      uint32_t fw_ver = 0;
 #endif
-    fwdgt_counter_reload();
     //receive_flag = RESET;
     /* SystemInit() est deja appele par le demarrage (startup_gd32f10x_hd.S) avant main() :
        un second appel (present dans EBiCS) repasserait inutilement l'horloge sur le HSI 8 MHz. */
@@ -321,15 +322,15 @@ int main(void)
     gpio_config();
     /* TIMER configuration */
     timer0_config(); // PWM for Mosfet driver
-    timer1_config(); //trigger regular ADC for testing
     timer2_config(); //for hall sensor handling
-
-
 
     /* DMA configuration */
     dma_config();
     /* ADC configuration */
     adc_config();
+    /* Démarre TIMER1 (déclencheur 4 kHz des conversions régulières) APRÈS calibration ADC et activation DMA :
+       sinon la calibration ADC (et les déclenchements pendant la config) décalent l'anneau DMA de 9 voies. */
+    timer1_config(); //trigger regular ADC for testing
 
     /* initialize CAN and CAN filter */
     can_networking_init();
@@ -397,9 +398,9 @@ int main(void)
 	PI_iq.shift=11;
 	PI_iq.limit_i=_U_MAX;
 
-    //Check, if virtual EEPROM was ever written. If not, fill it with default values
+    //Check, if virtual EEPROM was ever written (or interrupted mid-program). If not, fill it with default values
     ptrd = (uint32_t *)FMC_WRITE_START_ADDR;
-    if(0xFFFFFFFF == (*(ptrd+1))){
+    if(0xFFFFFFFF == (*(ptrd+1)) || MP.MagicNumber != ((const MotorParams_t *)(FMC_WRITE_START_ADDR + FMC_OFFSET_MP))->MagicNumber){
     	InitEEPROM(&MP);
     }
     //read parameters from virtual EEPROM and overwrite the default values
@@ -431,6 +432,7 @@ int main(void)
 	helper=((float)1.0/((float)1.0+(float)MP.Cadence_exponent));
     //autodetect();
 
+    fwdgt_config(500, FWDGT_PSC_DIV16);
     fwdgt_enable(); /* REVUE-PUISSANCE P5 : le chien de garde demarre ici ; rechargement uniquement dans la boucle principale */
 
     while (1){
@@ -525,13 +527,19 @@ int main(void)
             }//end slow loop
 
             if(MS.i_q_setpoint){
-            	/* REVUE-PUISSANCE P2 : jamais de remise en route tant qu'un defaut est verrouille (remise sous tension requise) */
-            	if(!ui_8_PWM_ON_Flag && !safety_is_latched()){
+            	/* REVUE-PUISSANCE P2 : jamais de remise en route tant qu'un defaut est verrouille (remise sous tension requise).
+            	   Si le moteur est immobile (uint16_half_rotation_counter > 4000), on ne reactive pas MOE tant que la demande
+            	   n'est pas repassée par zero ou qu'un front Hall n'a pas remis uint16_half_rotation_counter a 0. */
+            	if(!ui_8_PWM_ON_Flag && !safety_is_latched() && uint16_half_rotation_counter <= 4000){
             		get_standstill_position();
-					timer_primary_output_config(TIMER0,ENABLE);
-					uint16_half_rotation_counter=0;
-					ui_8_PWM_ON_Flag=1;
+            		if(!safety_is_latched()){
+						timer_primary_output_config(TIMER0,ENABLE);
+						uint16_half_rotation_counter=0;
+						ui_8_PWM_ON_Flag=1;
+            		}
             	}
+            } else {
+            	uint16_half_rotation_counter=0;
             }
             if(uint16_half_rotation_counter>4000) {
             	if(ui_8_PWM_ON_Flag){
@@ -752,8 +760,12 @@ void dma_config(void)
 void adc_config(void)
 {
 
-    /* configure the ADC sync mode */
-    adc_mode_config(ADC_DAUL_INSERTED_PARALLEL_REGULAL_FOLLOWUP_FAST);
+    /* configure the ADC sync mode
+       Sur STM32F103 / APM32F103, ADC_DAUL_INSERTED_PARALLEL_REGULAL_FOLLOWUP_FAST déclenche aussi ADC1 en mode
+       régulier décalé de 7 cycles, sans requête DMA séparée, ce qui décale de 4 rangs le tableau DMA adc_value[0..8].
+       ADC_DAUL_INSERTED_PARALLEL garde uniquement le parallèle injecté (courants de phase) et laisse le groupe
+       régulier d'ADC0 aligné sur adc_value[0..8]. */
+    adc_mode_config(ADC_DAUL_INSERTED_PARALLEL);
     /* ADC scan mode function enable */
     adc_special_function_config(ADC0, ADC_SCAN_MODE, ENABLE);
     adc_special_function_config(ADC0, ADC_CONTINUOUS_MODE, DISABLE);
@@ -801,11 +813,13 @@ void adc_config(void)
     adc_inserted_channel_offset_config(ADC2, ADC_INSERTED_CHANNEL_0, 2045);
 
 
-    /* ADC trigger config */
+    /* ADC trigger config :
+       Sur APM32F103RC (comme le firmware AOCI d'origine : TIM1_CR2 = 0x2A71 -> MMS = 7 = OC4REF, TIM1_CCMR2 = 0x7868 -> OC4M = PWM1/PWM2),
+       les conversions injectees sont declenchees par TIM1_TRGO (OC4REF) sur ADC0 (maitre en mode parallele injecte avec ADC1) et ADC2. */
     adc_external_trigger_source_config(ADC0, ADC_REGULAR_CHANNEL, ADC0_1_EXTTRIG_REGULAR_T1_CH1);
-    adc_external_trigger_source_config(ADC0, ADC_INSERTED_CHANNEL, ADC0_1_EXTTRIG_INSERTED_T0_CH3);
+    adc_external_trigger_source_config(ADC0, ADC_INSERTED_CHANNEL, ADC0_1_EXTTRIG_INSERTED_T0_TRGO);
     adc_external_trigger_source_config(ADC1, ADC_INSERTED_CHANNEL, ADC0_1_2_EXTTRIG_INSERTED_NONE);
-    adc_external_trigger_source_config(ADC2, ADC_INSERTED_CHANNEL, ADC2_EXTTRIG_INSERTED_T0_CH3);
+    adc_external_trigger_source_config(ADC2, ADC_INSERTED_CHANNEL, ADC2_EXTTRIG_INSERTED_T0_TRGO);
     /* ADC external trigger enable */
     adc_external_trigger_config(ADC0, ADC_REGULAR_CHANNEL, ENABLE);
     adc_external_trigger_config(ADC0, ADC_INSERTED_CHANNEL, ENABLE);
@@ -833,7 +847,8 @@ void adc_config(void)
     /* enable ADC interrupt */
     adc_interrupt_enable(ADC1, ADC_INT_EOIC);
 
-    /* ADC DMA function enable */
+    /* enable DMA request AFTER calibration, and clear any residual regular data */
+    (void)ADC_RDATA(ADC0);
     adc_dma_mode_enable(ADC0);
 }
 
@@ -863,8 +878,11 @@ void timer0_config(void)
 	    timer_deinit(TIMER0);
 
 	    /* TIMER0 configuration */
+	/* REVUE-PUISSANCE P1/P10 : mode centre 1 (TIMER_COUNTER_CENTER_DOWN, CR1 = 0x31) comme le firmware AOCI d'origine :
+	   avec CH3 en PWM1 (CCR3 = 1990), OC3REF monte une seule fois par periode PWM autour du sommet (16,5 kHz).
+	   En mode TIMER_COUNTER_CENTER_BOTH (CR1 = 0x61), le drapeau de comparaison est pose a la montee ET a la descente. */
 	    timer_initpara.prescaler         = 0;
-	    timer_initpara.alignedmode       = TIMER_COUNTER_CENTER_BOTH;
+	    timer_initpara.alignedmode       = TIMER_COUNTER_CENTER_DOWN;
 	    timer_initpara.counterdirection  = TIMER_COUNTER_UP;
 	    timer_initpara.period            = _T; //for 32 kHz center aligned --> 16kHz PWM frequency
 	    timer_initpara.clockdivision     = TIMER_CKDIV_DIV1;
@@ -882,6 +900,8 @@ void timer0_config(void)
 	    timer_channel_output_config(TIMER0,TIMER_CH_0,&timer_ocintpara);
 	    timer_channel_output_config(TIMER0,TIMER_CH_1,&timer_ocintpara);
 	    timer_channel_output_config(TIMER0,TIMER_CH_2,&timer_ocintpara);
+	    /* CH3 (CC4) ne pilote que TRGO (OC3REF), pas de sortie externe (CCER = 0x0DDD comme l'origine) */
+	    timer_ocintpara.outputstate  = TIMER_CCX_DISABLE;
 	    timer_channel_output_config(TIMER0,TIMER_CH_3,&timer_ocintpara);
 
 	    timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_0,_T>>1);//grün
@@ -897,8 +917,12 @@ void timer0_config(void)
 	    timer_channel_output_shadow_config(TIMER0,TIMER_CH_2,TIMER_OC_SHADOW_DISABLE);
 
 	    timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_3,(TRIGGER_DEFAULT));//(_T>>1)+500 in the middle of the PWM cycle
-	    timer_channel_output_mode_config(TIMER0,TIMER_CH_3,TIMER_OC_MODE_PWM0);
+	    /* Comme le firmware AOCI d'origine (CCMR2 = 0x7868, CR2 = 0x2A71) :
+	       CH3 (CC4) en PWM1 (= PWM mode 2 ST, actif quand CNT >= CCR4, donc front montant unique autour du sommet CNT = _T)
+	       et TRGO = OC3REF (MMS = 0x70) pour declencher ADC0/ADC1/ADC2 injectes une seule fois par periode PWM (16,5 kHz). */
+	    timer_channel_output_mode_config(TIMER0,TIMER_CH_3,TIMER_OC_MODE_PWM1);
 	    timer_channel_output_shadow_config(TIMER0,TIMER_CH_3,TIMER_OC_SHADOW_DISABLE);
+	    timer_master_output_trigger_source_select(TIMER0,TIMER_TRI_OUT_SRC_O3CPRE);
 	    timer_automatic_output_disable(TIMER0);
 	    /* automatic output enable, break, dead time and lock configuration*/
 	    /* REVUE-PUISSANCE P1/P10 : temps mort 25 (379 ns a 66 MHz) comme l'origine AOCI (BDTR relevee : DTG = 25) ; avant : 32 (calcule
@@ -907,7 +931,7 @@ void timer0_config(void)
 	    timer_breakpara.runoffstate      = TIMER_ROS_STATE_ENABLE;
 	    timer_breakpara.ideloffstate     = TIMER_IOS_STATE_ENABLE ;
 	    timer_breakpara.deadtime         = 25;
-	    timer_breakpara.breakpolarity    = TIMER_BREAK_POLARITY_HIGH;
+	    timer_breakpara.breakpolarity    = TIMER_BREAK_POLARITY_LOW;
 	    timer_breakpara.outputautostate  = TIMER_OUTAUTO_DISABLE;
 	    timer_breakpara.protectmode      = TIMER_CCHP_PROT_0;
 	    timer_breakpara.breakstate       = TIMER_BREAK_DISABLE;
@@ -953,8 +977,9 @@ void timer1_config(void) //running at 6kHz interrupt frequency
 
 
 
-    /* TIMER0 primary output enable */
-    timer_primary_output_config(TIMER1, ENABLE);
+    /* TIMER0 primary output enable : uniquement pour les timers avances (TIMER0/TIMER7).
+       ATTENTION : en GD32F10x, TIMER_CCHP(TIMER1) vaut 0x40000044 (bit-band SRAM !), qui ecrase l'adresse 0x20000000 bit 17 ! */
+    //timer_primary_output_config(TIMER1, ENABLE);
     /* auto-reload preload enable */
     timer_auto_reload_shadow_enable(TIMER1);
     timer_interrupt_flag_clear(TIMER1,TIMER_INT_FLAG_UP);
@@ -1647,7 +1672,8 @@ int32_t map (int32_t x, int32_t in_min, int32_t in_max, int32_t out_min, int32_t
 }
 
 
-//assuming, a proper AD conversion takes 350 timer tics, to be confirmed. DT+TR+TS deadtime + noise subsiding + sample time
+/* REVUE-PUISSANCE P1 : une conversion injectee + stabilisation prend ADC_CONV_TICKS (120) + ADC_SETTLE_TICKS (60) = 180 ticks de 66 MHz (~2,7 us).
+   Au-dela de DYNAMIC_ADC_THRESHOLD (1810), le declenchement CC4 suit la phase la plus chargee. */
 void dyn_adc_state(q31_t angle){
 	if (switchtime[2]>switchtime[0] && switchtime[2]>switchtime[1]){
 		MS.char_dyn_adc_state = 1; // -90Ã‚Â° .. +30Ã‚Â°: Phase C at high dutycycles
@@ -1766,6 +1792,7 @@ void get_standstill_position(){
 }
 
 int8_t calculate_SOC(uint16_t voltage, uint8_t cells_in_series){ //interpolate from lookup table
+    if (cells_in_series == 0) return 0; /* protection division par zero (SYSTEM_VOLTAGE=0 en EEPROM non initialisee -> +Inf -> boucle sur NaN) */
     float voltages[] = {2.9, 3.15, 3.30, 3.42, 3.55, 3.60, 3.65, 3.70, 3.75, 3.80, 3.85, 3.90, 4.00, 4.10, 4.20};
     float soc_values[] = {0, 12, 22, 32, 44, 48, 55, 60, 68, 72, 77, 88, 95, 97, 100};
     int length = sizeof(voltages) / sizeof(voltages[0]);
@@ -2038,7 +2065,15 @@ uint16_t update_setpoint(void){
 				}
 
 
-	    		return MS.i_q_setpoint_temp;
+	/* coupe aussi MOE = 0 dans la boucle lente des que la consigne retombe a zero */
+	if(!MS.i_q_setpoint_temp && ui_8_PWM_ON_Flag){
+		timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_0,_T>>1);
+		timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_1,_T>>1);
+		timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_2,_T>>1);
+		timer_primary_output_config(TIMER0,DISABLE);
+		ui_8_PWM_ON_Flag=0;
+	}
+	return MS.i_q_setpoint_temp;
 
 }
 

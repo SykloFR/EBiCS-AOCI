@@ -167,7 +167,6 @@ q31_t PI_control (PI_control_t* PI_c)
 
 	int32_t p_q16 = delta * PI_c->gain_p;
 	int32_t lim_q16 = ((int32_t)PI_c->limit_i) << 16;
-	temp5 = p_q16 >> 16;
 	PI_c->integral_part += delta * PI_c->gain_i;
 
 	if (PI_c->integral_part > lim_q16) PI_c->integral_part = lim_q16;

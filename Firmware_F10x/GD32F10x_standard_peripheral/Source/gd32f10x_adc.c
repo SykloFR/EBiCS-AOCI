@@ -468,18 +468,11 @@ void adc_inserted_channel_config(uint32_t adc_periph, uint8_t rank, uint8_t adc_
 */
 void adc_inserted_channel_offset_config(uint32_t adc_periph, uint8_t inserted_channel, uint16_t offset)
 {
-    uint8_t inserted_length;
-    uint32_t num = 0U;
-
-    inserted_length = (uint8_t)GET_BITS(ADC_ISQ(adc_periph) , 20U , 21U);
-    num = ((uint32_t)ADC_OFFSET_LENGTH - ((uint32_t)inserted_length - (uint32_t)inserted_channel));
-    
-    if(num <= ADC_OFFSET_LENGTH){
-        /* calculate the offset of the register */
-        num = num * ADC_OFFSET_SHIFT_LENGTH;
-        /* config the offset of the selected channels */
-        REG32((adc_periph) + 0x14U + num) = IOFFX_IOFF((uint32_t)offset);
-    }  
+    /* Sur STM32F10x / APM32F10x / GD32F10x, chaque canal injecté x (0..3) soustrait directement ADC_IOFFx
+       (et non IOFF[3 - (JL - x)] comme le faisait par erreur la version V2.7.0 du driver GD32F10x). */
+    if(inserted_channel <= ADC_OFFSET_LENGTH){
+        REG32((adc_periph) + 0x14U + ((uint32_t)inserted_channel * ADC_OFFSET_SHIFT_LENGTH)) = IOFFX_IOFF((uint32_t)offset);
+    }
 }
 
 /*!

@@ -22,6 +22,7 @@
 #include "CAN_Display.h"
 #include "parser.h"
 #include "FOC.h"
+#include "aoci_board.h"
 
 Ext_ID_t Ext_ID_Rx;
 Ext_ID_t Ext_ID_Tx;
@@ -241,7 +242,7 @@ void sendAcknoledge(void){
 	/* transmit message */
 	transmit_mailbox = can_message_transmit(CAN0, &transmit_message);
 	/* waiting for transmit completed */
-	timeout = 0xFFFF;
+	timeout = CAN_TX_TIMEOUT;
 	while((CAN_TRANSMIT_OK != can_transmit_states(CAN0, transmit_mailbox)) && (0 != timeout)){
 		timeout--;
 		}
@@ -277,7 +278,7 @@ void sendCAN_Poll(MotorParams_t* MP, MotorState_t* MS, uint16_t command){
 			/* transmit message */
 			transmit_mailbox = can_message_transmit(CAN0, &transmit_message);
 			/* waiting for transmit completed */
-			timeout = 0xFFFF;
+			timeout = CAN_TX_TIMEOUT;
 			while((CAN_TRANSMIT_OK != can_transmit_states(CAN0, transmit_mailbox)) && (0 != timeout)){
 				timeout--;
 				}
@@ -314,7 +315,7 @@ void sendCAN_Poll(MotorParams_t* MP, MotorState_t* MS, uint16_t command){
 			/* transmit message */
 			transmit_mailbox = can_message_transmit(CAN0, &transmit_message);
 			/* waiting for transmit completed */
-			timeout = 0xFFFF;
+			timeout = CAN_TX_TIMEOUT;
 			while((CAN_TRANSMIT_OK != can_transmit_states(CAN0, transmit_mailbox)) && (0 != timeout)){
 				timeout--;
 				}
@@ -335,7 +336,7 @@ void sendCAN_Poll(MotorParams_t* MP, MotorState_t* MS, uint16_t command){
 			/* transmit message */
 			transmit_mailbox = can_message_transmit(CAN0, &transmit_message);
 			/* waiting for transmit completed */
-			timeout = 0xFFFF;
+			timeout = CAN_TX_TIMEOUT;
 			while((CAN_TRANSMIT_OK != can_transmit_states(CAN0, transmit_mailbox)) && (0 != timeout)){
 				timeout--;
 				}
@@ -375,7 +376,7 @@ void sendCAN_Tx(MotorParams_t* MP, MotorState_t* MS){
 			/* transmit message */
 			transmit_mailbox = can_message_transmit(CAN0, &transmit_message);
 			/* waiting for transmit completed */
-			timeout = 0xFFFF;
+			timeout = CAN_TX_TIMEOUT;
 			while((CAN_TRANSMIT_OK != can_transmit_states(CAN0, transmit_mailbox)) && (0 != timeout)){
 				timeout--;
 				}
@@ -406,7 +407,7 @@ void sendCAN_Tx(MotorParams_t* MP, MotorState_t* MS){
 			/* transmit message */
 			transmit_mailbox = can_message_transmit(CAN0, &transmit_message);
 			/* waiting for transmit completed */
-			timeout = 0xFFFF;
+			timeout = CAN_TX_TIMEOUT;
 			while((CAN_TRANSMIT_OK != can_transmit_states(CAN0, transmit_mailbox)) && (0 != timeout)){
 				timeout--;
 				}
@@ -430,7 +431,7 @@ void sendCAN_Tx(MotorParams_t* MP, MotorState_t* MS){
 			/* transmit message */
 			transmit_mailbox = can_message_transmit(CAN0, &transmit_message);
 			/* waiting for transmit completed */
-			timeout = 0xFFFF;
+			timeout = CAN_TX_TIMEOUT;
 			while((CAN_TRANSMIT_OK != can_transmit_states(CAN0, transmit_mailbox)) && (0 != timeout)){
 				timeout--;
 				}
@@ -458,7 +459,7 @@ void sendCAN_Tx(MotorParams_t* MP, MotorState_t* MS){
 			/* transmit message */
 			transmit_mailbox = can_message_transmit(CAN0, &transmit_message);
 			/* waiting for transmit completed */
-			timeout = 0xFFFF;
+			timeout = CAN_TX_TIMEOUT;
 			while((CAN_TRANSMIT_OK != can_transmit_states(CAN0, transmit_mailbox)) && (0 != timeout)){
 				timeout--;
 				}
@@ -479,7 +480,7 @@ void sendCAN_Tx(MotorParams_t* MP, MotorState_t* MS){
 			/* transmit message */
 			transmit_mailbox = can_message_transmit(CAN0, &transmit_message);
 			/* waiting for transmit completed */
-			timeout = 0xFFFF;
+			timeout = CAN_TX_TIMEOUT;
 			while((CAN_TRANSMIT_OK != can_transmit_states(CAN0, transmit_mailbox)) && (0 != timeout)){
 				timeout--;
 				}
@@ -533,7 +534,7 @@ void send_multiframe(uint16_t command, char* data, uint8_t length ){
 			/* transmit message */
 			transmit_mailbox = can_message_transmit(CAN0, &transmit_message);
 			/* waiting for transmit completed */
-			timeout = 0xFFFF;
+			timeout = CAN_TX_TIMEOUT;
 			while((CAN_TRANSMIT_OK != can_transmit_states(CAN0, transmit_mailbox)) && (0 != timeout)){
 				timeout--;
 				}
@@ -557,7 +558,7 @@ void send_multiframe(uint16_t command, char* data, uint8_t length ){
 
 				/* transmit message */
 				transmit_mailbox = can_message_transmit(CAN0, &transmit_message);
-				timeout = 0xFFFF;
+				timeout = CAN_TX_TIMEOUT;
 				while((CAN_TRANSMIT_OK != can_transmit_states(CAN0, transmit_mailbox)) && (0 != timeout)){
 					timeout--;
 					}
@@ -583,7 +584,7 @@ void send_multiframe(uint16_t command, char* data, uint8_t length ){
 			/* transmit message */
 			transmit_mailbox = can_message_transmit(CAN0, &transmit_message);
 			/* waiting for transmit completed */
-			timeout = 0xFFFF;
+			timeout = CAN_TX_TIMEOUT;
 			while((CAN_TRANSMIT_OK != can_transmit_states(CAN0, transmit_mailbox)) && (0 != timeout)){
 				timeout--;
 				}

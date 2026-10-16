@@ -87,8 +87,10 @@
 
 //--------------------------------------------------------------------
 //Speed settings
+/* Rapport de reduction AOCI Takamori mesure (dents : 8 -> 41 -> 11 -> 81) = (41/8) * (81/11) = 3321/88 ~= 37,74:1
+   et rotor a 14 aimants = 7 paires de poles (brochage.md + demontage). */
 #define WHEEL_CIRCUMFERENCE 2200
-#define GEAR_RATIO 80 //11 for BionX IGH3
+#define GEAR_RATIO 38 //37,7:1 pour AOCI Takamori (80 sur Bafang M820, 11 sur BionX IGH3)
 #define SPEEDLIMIT 2500
 #define PULSES_PER_REVOLUTION 1 //wheel revolution, Para1[20]
 #define SPEEDSOURCE EXTERNAL
