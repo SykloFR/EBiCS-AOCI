@@ -8,10 +8,19 @@ CC      = $(PREFIX)gcc
 OBJCOPY = $(PREFIX)objcopy
 SIZE    = $(PREFIX)size
 
-BUILD   = build
+BUILD  ?= build
 TARGET  = $(BUILD)/ebics
 
+# CORE=m4 : cible d'origine EBiCS (GD32F303) ; CORE=m3 : cible AOCI (APM32F103RC, sans FPU)
+CORE   ?= m4
+ifeq ($(CORE),m3)
+CPU     = -mcpu=cortex-m3 -mthumb -mfloat-abi=soft
+DSPLIB  =
+BUILD   = build-m3
+else
 CPU     = -mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard
+DSPLIB  = -LFirmware/CMSIS -larm_cortexM4lf_math
+endif
 DEFS    = -DGD32F30X_HD -DUSE_STDPERIPH_DRIVER -DGD_ECLIPSE_GCC
 INCS    = -Iinc -IFirmware/CMSIS -IFirmware/CMSIS/GD/GD32F30x/Include \
           -IFirmware/GD32F30x_standard_peripheral/Include
@@ -20,7 +29,7 @@ CFLAGS  = $(CPU) $(DEFS) $(INCS) -Os -g -std=gnu99 -Wall \
           -ffunction-sections -fdata-sections
 LDFLAGS = $(CPU) -Tldscripts/gd32f30x_flash.ld -Wl,--gc-sections \
           -Wl,-Map=$(TARGET).map --specs=nano.specs --specs=nosys.specs \
-          -LFirmware/CMSIS -larm_cortexM4lf_math -lm
+          $(DSPLIB) -lm
 
 SRCS    = $(wildcard src/*.c) \
           $(wildcard Firmware/GD32F30x_standard_peripheral/Source/*.c) \
