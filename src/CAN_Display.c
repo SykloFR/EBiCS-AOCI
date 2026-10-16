@@ -60,11 +60,15 @@ void processCAN_Rx(MotorParams_t* MP, MotorState_t* MS){
 	Ext_ID_Rx.target = (receive_message.rx_efid>>19)&0x1F; //only 5 bit width
 	Ext_ID_Rx.source = (receive_message.rx_efid>>24)&0x1F;
 
-	if(Ext_ID_Rx.target==2){
-		switch (Ext_ID_Rx.operation){
+	/* Trames pour ce controleur, ou commande afficheur 0x6300 diffusee : l'afficheur AOCI emet 0x13F86300 vers la diffusion 0x1F
+	   (pas d'accuse ni de reponse dans ce cas, comme le controleur AOCI d'origine) */
+	uint8_t for_me = (Ext_ID_Rx.target==CAN_NODE_CONTROLLER);
+	uint8_t display_broadcast = (Ext_ID_Rx.target==CAN_NODE_BROADCAST && Ext_ID_Rx.source==CAN_NODE_DISPLAY && Ext_ID_Rx.command==0x6300);
+	if(for_me || display_broadcast){
+		if(for_me) switch (Ext_ID_Rx.operation){
 			case WRITE_CMD:
 
-				if (receive_message.rx_dlen==1 && receive_message.rx_data[0]>8 && Ext_ID_Rx.source==5){
+				if (receive_message.rx_dlen==1 && receive_message.rx_data[0]>8 && Ext_ID_Rx.source==CAN_NODE_BESST){
 					Rx_MF_active=Ext_ID_Rx.command;
 					rx_data_length=receive_message.rx_data[0];
 				}
@@ -206,10 +210,10 @@ void processCAN_Rx(MotorParams_t* MP, MotorState_t* MS){
 
 		}
 
-		if(Ext_ID_Rx.command==0x6200){ //Position sensor calibration
+		if(Ext_ID_Rx.command==0x6200 && for_me && Ext_ID_Rx.source==CAN_NODE_BESST){ //Position sensor calibration (rotation moteur : outil PC uniquement)
 			autodetect();
 		}
-		if(Ext_ID_Rx.command==0x6101){ //Torque sensor calibration normally, here used for factory settings reset
+		if(Ext_ID_Rx.command==0x6101 && for_me && Ext_ID_Rx.source==CAN_NODE_BESST){ //Torque sensor calibration normally, here used for factory settings reset
 			InitEEPROM(MP);
 			read_virtual_eeprom();
 			parse_MOparams(MP);
@@ -219,15 +223,15 @@ void processCAN_Rx(MotorParams_t* MP, MotorState_t* MS){
 
 
 	}
-	if(Ext_ID_Rx.command==0x3005){ //jump to bootloader for firmware update
+	if(Ext_ID_Rx.command==0x3005 && for_me && Ext_ID_Rx.source==CAN_NODE_BESST){ //reset logiciel : le bootloader AOCI reste actif ~0,5 s apres un reset logiciel (outil PC uniquement)
 		NVIC_SystemReset();
 	}
 }
 void sendAcknoledge(void){
 	Ext_ID_Tx.command = Ext_ID_Rx.command;
 	Ext_ID_Tx.operation = 2; //acknoledge OK
-	Ext_ID_Tx.target = 0x05; //BESST
-	Ext_ID_Tx.source = 0x02; //controller
+	Ext_ID_Tx.target = CAN_NODE_BESST; //BESST
+	Ext_ID_Tx.source = CAN_NODE_CONTROLLER; //controller
 	transmit_message.tx_sfid = 0x00;
 	transmit_message.tx_efid = Ext_ID_Tx.command+(Ext_ID_Tx.operation<<16)+(Ext_ID_Tx.target<<19)+(Ext_ID_Tx.source<<24);
 	transmit_message.tx_ft = CAN_FT_DATA;
@@ -251,7 +255,7 @@ void sendCAN_Poll(MotorParams_t* MP, MotorState_t* MS, uint16_t command){
 		case 0x3201: //speed and power
 			/* initialize transmit message */
 			transmit_message.tx_sfid = 0x00;
-			transmit_message.tx_efid = 0x02F83201;
+			transmit_message.tx_efid = CAN_EFID_BCAST(0x3201);
 			transmit_message.tx_ft = CAN_FT_DATA;
 			transmit_message.tx_ff = CAN_FF_EXTENDED;
 			transmit_message.tx_dlen = 8;
@@ -294,7 +298,7 @@ void sendCAN_Poll(MotorParams_t* MP, MotorState_t* MS, uint16_t command){
 				last_distance=MS->distance_since_startup;
 			}
 			transmit_message.tx_sfid = 0x00;
-			transmit_message.tx_efid = 0x02F83200;
+			transmit_message.tx_efid = CAN_EFID_BCAST(0x3200);
 			transmit_message.tx_ft = CAN_FT_DATA;
 			transmit_message.tx_ff = CAN_FF_EXTENDED;
 			transmit_message.tx_dlen = 8;
@@ -320,7 +324,7 @@ void sendCAN_Poll(MotorParams_t* MP, MotorState_t* MS, uint16_t command){
 		case 0x3205: //to do
 			/* initialize transmit message */
 			transmit_message.tx_sfid = 0x00;
-			transmit_message.tx_efid = 0x02F83205;
+			transmit_message.tx_efid = CAN_EFID_BCAST(0x3205);
 			transmit_message.tx_ft = CAN_FT_DATA;
 			transmit_message.tx_ff = CAN_FF_EXTENDED;
 			transmit_message.tx_dlen = 2;
@@ -351,8 +355,8 @@ void sendCAN_Tx(MotorParams_t* MP, MotorState_t* MS){
 
 			Ext_ID_Tx.command = 0x6001;
 			Ext_ID_Tx.operation = 0; //write
-			Ext_ID_Tx.target = 0x05; //BESST
-			Ext_ID_Tx.source = 0x02; //controller
+			Ext_ID_Tx.target = CAN_NODE_BESST; //BESST
+			Ext_ID_Tx.source = CAN_NODE_CONTROLLER; //controller
 			transmit_message.tx_sfid = 0x00;
 			transmit_message.tx_efid = Ext_ID_Tx.command+(Ext_ID_Tx.operation<<16)+(Ext_ID_Tx.target<<19)+(Ext_ID_Tx.source<<24);
 			transmit_message.tx_ft = CAN_FT_DATA;
@@ -382,8 +386,8 @@ void sendCAN_Tx(MotorParams_t* MP, MotorState_t* MS){
 
 			Ext_ID_Tx.command = 0x6002;
 			Ext_ID_Tx.operation = 0; //write
-			Ext_ID_Tx.target = 0x05; //BESST
-			Ext_ID_Tx.source = 0x02; //controller
+			Ext_ID_Tx.target = CAN_NODE_BESST; //BESST
+			Ext_ID_Tx.source = CAN_NODE_CONTROLLER; //controller
 			transmit_message.tx_sfid = 0x00;
 			transmit_message.tx_efid = Ext_ID_Tx.command+(Ext_ID_Tx.operation<<16)+(Ext_ID_Tx.target<<19)+(Ext_ID_Tx.source<<24);
 			transmit_message.tx_ft = CAN_FT_DATA;
@@ -413,8 +417,8 @@ void sendCAN_Tx(MotorParams_t* MP, MotorState_t* MS){
 
 			Ext_ID_Tx.command = 0x62D9;
 			Ext_ID_Tx.operation = 0; //write
-			Ext_ID_Tx.target = 0x05; //BESST
-			Ext_ID_Tx.source = 0x02; //controller
+			Ext_ID_Tx.target = CAN_NODE_BESST; //BESST
+			Ext_ID_Tx.source = CAN_NODE_CONTROLLER; //controller
 			transmit_message.tx_sfid = 0x00;
 			transmit_message.tx_efid = Ext_ID_Tx.command+(Ext_ID_Tx.operation<<16)+(Ext_ID_Tx.target<<19)+(Ext_ID_Tx.source<<24);
 			transmit_message.tx_ft = CAN_FT_DATA;
@@ -437,8 +441,8 @@ void sendCAN_Tx(MotorParams_t* MP, MotorState_t* MS){
 
 			Ext_ID_Tx.command = 0x3203;
 			Ext_ID_Tx.operation = 0; //write
-			Ext_ID_Tx.target = 0x05; //BESST
-			Ext_ID_Tx.source = 0x02; //controller
+			Ext_ID_Tx.target = CAN_NODE_BESST; //BESST
+			Ext_ID_Tx.source = CAN_NODE_CONTROLLER; //controller
 			transmit_message.tx_sfid = 0x00;
 			transmit_message.tx_efid = Ext_ID_Tx.command+(Ext_ID_Tx.operation<<16)+(Ext_ID_Tx.target<<19)+(Ext_ID_Tx.source<<24);
 			transmit_message.tx_ft = CAN_FT_DATA;
@@ -465,8 +469,8 @@ void sendCAN_Tx(MotorParams_t* MP, MotorState_t* MS){
 
 			Ext_ID_Tx.command = 0x6200;
 			Ext_ID_Tx.operation = NORMAL_ACK; //write
-			Ext_ID_Tx.target = 0x05; //BESST
-			Ext_ID_Tx.source = 0x02; //controller
+			Ext_ID_Tx.target = CAN_NODE_BESST; //BESST
+			Ext_ID_Tx.source = CAN_NODE_CONTROLLER; //controller
 			transmit_message.tx_sfid = 0x00;
 			transmit_message.tx_efid = Ext_ID_Tx.command+(Ext_ID_Tx.operation<<16)+(Ext_ID_Tx.target<<19)+(Ext_ID_Tx.source<<24);
 			transmit_message.tx_ft = CAN_FT_DATA;
@@ -516,8 +520,8 @@ void send_multiframe(uint16_t command, char* data, uint8_t length ){
 			//send multiframe start
 			Ext_ID_Tx.command = command;
 			Ext_ID_Tx.operation = LONG_START_CMD;
-			Ext_ID_Tx.target = 0x05; //BESST
-			Ext_ID_Tx.source = 0x02; //controller
+			Ext_ID_Tx.target = CAN_NODE_BESST; //BESST
+			Ext_ID_Tx.source = CAN_NODE_CONTROLLER; //controller
 			transmit_message.tx_sfid = 0x00;
 			transmit_message.tx_efid = Ext_ID_Tx.command+(Ext_ID_Tx.operation<<16)+(Ext_ID_Tx.target<<19)+(Ext_ID_Tx.source<<24);
 			transmit_message.tx_ft = CAN_FT_DATA;
@@ -541,8 +545,8 @@ void send_multiframe(uint16_t command, char* data, uint8_t length ){
 			for (k=0; k < nbrofframes; k++){
 				Ext_ID_Tx.command = k;
 				Ext_ID_Tx.operation = LONG_TRANG_CMD;
-				Ext_ID_Tx.target = 0x05; //BESST
-				Ext_ID_Tx.source = 0x02; //controller
+				Ext_ID_Tx.target = CAN_NODE_BESST; //BESST
+				Ext_ID_Tx.source = CAN_NODE_CONTROLLER; //controller
 				transmit_message.tx_sfid = 0x00;
 				transmit_message.tx_efid = Ext_ID_Tx.command+(Ext_ID_Tx.operation<<16)+(Ext_ID_Tx.target<<19)+(Ext_ID_Tx.source<<24);
 				transmit_message.tx_ft = CAN_FT_DATA;
@@ -562,8 +566,8 @@ void send_multiframe(uint16_t command, char* data, uint8_t length ){
 			//send multiframe end
 			Ext_ID_Tx.command = k;
 			Ext_ID_Tx.operation = LONG_END_CMD;
-			Ext_ID_Tx.target = 0x05; //BESST
-			Ext_ID_Tx.source = 0x02; //controller
+			Ext_ID_Tx.target = CAN_NODE_BESST; //BESST
+			Ext_ID_Tx.source = CAN_NODE_CONTROLLER; //controller
 			transmit_message.tx_sfid = 0x00;
 			transmit_message.tx_efid = Ext_ID_Tx.command+(Ext_ID_Tx.operation<<16)+(Ext_ID_Tx.target<<19)+(Ext_ID_Tx.source<<24);
 			transmit_message.tx_ft = CAN_FT_DATA;

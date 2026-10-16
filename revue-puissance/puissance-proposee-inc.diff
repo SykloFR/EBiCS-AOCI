@@ -1,0 +1,151 @@
+diff --git a/inc/config.h b/revue-puissance/proposed/inc/config.h
+index 2823a51..94de388 100644
+--- a/inc/config.h
++++ b/revue-puissance/proposed/inc/config.h
+@@ -16,10 +16,13 @@
+ #define INTERNAL 0
+ //----------------------------------------------------------------------
+ // advanced setting, don't touch, if you don't know what you are doing!
+-#define _T 3750//5625
++/* REVUE-PUISSANCE P1 : constantes de temps recalculees pour le controleur AOCI (SYSCLK 66 MHz) */
++#define _T 2000  // demi-periode du compteur centre : 66 MHz / (2 x 2000) = 16,5 kHz (ARR = 2000 releve sur le firmware AOCI d'origine ; 3750 pour 120 MHz sur le GD32F303)
+ #define TRIGGER_OFFSET_ADC 10
+ #define TRIGGER_DEFAULT _T-TRIGGER_OFFSET_ADC
+-#define DYNAMIC_ADC_THRESHOLD 3750 //to be tested
++#define ADC_CONV_TICKS 120      // (7,5 + 12,5 cycles ADC) x 6 (SYSCLK / horloge ADC) : duree d'une conversion injectee en ticks de 66 MHz
++#define ADC_SETTLE_TICKS 60     // temps mort 25 + EG2123A (100 a 300 ns) + rebond : ESTIMATION, a mesurer a l'oscilloscope
++#define DYNAMIC_ADC_THRESHOLD (_T-TRIGGER_OFFSET_ADC-ADC_CONV_TICKS-ADC_SETTLE_TICKS) // 1810 : au-dela, le declenchement suit la phase la plus chargee
+ #define CAL_BAT_V 17
+ #define CAL_BAT_I 37.0
+ #define CAL_BAT_I_OFFSET 2035
+@@ -95,9 +98,16 @@
+ 
+ //---------------------------------------------------------------------
+ //power settings
+-#warning "PUISSANCE : _T, DTG, temps d'echantillonnage ADC, PH_CURRENT_MAX, BATTERYCURRENT_MAX, offsets et protections sont encore ceux du M820 (GD32F303, 120 MHz) : NE PAS FLASHER, voir revue-puissance/README.md"
+-#define PH_CURRENT_MAX 700 //uses field Max current on low charge Para1[9]  (M820 : ~220 A sur l'echelle de mesure AOCI, voir revue-puissance/PROPOSITIONS.md P11)
+-#define BATTERYCURRENT_MAX 12000
++/* REVUE-PUISSANCE P2 : echelles de courant du controleur AOCI.
++   Courant de phase : seuil d'origine = I(A) x R x 2 x 32768 / 1000 / 1,956 unites de 16 par point, R = 1,5 (octet de config flash 0x0803D800 = 2) :
++   80 A = 251 points, soit ~3,14 points/A (et non ~100 points/A comme supposent les valeurs M820 d'EBiCS). A CONFIRMER par mesure au banc.
++   Courant batterie : 27,5 points/A (shunt R002), CAL_BAT_I = 37 mA/point convient. */
++#define PH_COUNTS_PER_A_X100 314
++#define PH_CURRENT_MAX 60        // PREMIER ESSAI prudent : ~19 A de phase. EBiCS/M820 : 700 (= ~220 A sur l'echelle AOCI !). A fixer par le developpeur.
++#define BATTERYCURRENT_MAX 15000 // mA : plafond du firmware AOCI 36V 15A (EBiCS/M820 : 12000)
++#define PH_CURRENT_TRIP 377      // points : 120 A nominal du palier 3 du firmware AOCI d'origine (80 / 100 / 120 A). A relire.
++#define PH_TRIP_PERIODS 6        // periodes PWM consecutives au-dessus du seuil avant coupure (origine : 6, soit ~0,36 ms)
++#define TEMP_SENSOR_REQUIRED 1   // 1 : sonde de temperature absente / hors plage = pas d'assistance (a mettre a 0 pour un essai de banc sans NTC)
+ #define REVERSE -1 //1 for normal direction, -1 for reverse //use field Motor Type (Para1[18]) 1 = 1, 0 = -1
+ #define PUSHASSIST_CURRENT 300
+ #define VOLTAGE_MIN 1773 //30,0 V : coupure basse tension du firmware AOCI 36V15A d'origine (pack 10S). Unite = points ADC (comparaison avec voltage_raw_filtered), 59,1 points/V sur la carte AOCI : 30 x 59,1 = 1773. Rampe d'assistance sur les 176 points suivants (~3 V).
+diff --git a/revue-puissance/proposed/inc/foc_int.h b/revue-puissance/proposed/inc/foc_int.h
+new file mode 100644
+index 0000000..1c787ee
+--- /dev/null
++++ b/revue-puissance/proposed/inc/foc_int.h
+@@ -0,0 +1,34 @@
++/*
++ * foc_int.h : regulateur PI et racine carree en entiers, pour le Cortex-M3 sans FPU du controleur AOCI.
++ *
++ * PROPOSITION POUR REVUE (revue-puissance/PROPOSITIONS.md, point P4). Non flashee, non validee sur moteur.
++ *
++ * Pourquoi : EBiCS (GD32F303, Cortex-M4F) fait le PI et la limitation de cercle en flottant dans l'interruption
++ * rapide (16,5 kHz, 4000 cycles disponibles a 66 MHz). Sur un M3 le flottant est emule par logiciel.
++ * Le meme calcul en entiers (gains en Q16) donne le meme resultat a +-1 point pres (essai sur PC,
++ * tools/bench/host_test_foc_int.c) et coute un ordre de grandeur de moins (mesure sur la carte,
++ * tools/bench/t5_ram_cost.py).
++ */
++#ifndef FOC_INT_H_
++#define FOC_INT_H_
++
++#include <stdint.h>
++
++/* Conversion d'une constante de gain en Q16 a la compilation (aucun flottant a l'execution) */
++#define Q16(x) ((int32_t)((x) * 65536.0 + 0.5))
++
++typedef struct {
++    int32_t gain_p;        /* Q16 */
++    int32_t gain_i;        /* Q16 */
++    int32_t integral;      /* Q16 */
++    int32_t limit_i;       /* en points (la limite de l'integrale, comme limit_i d'EBiCS) */
++    int32_t limit_out;     /* en points */
++    int32_t max_step;      /* variation maximale de la sortie par appel */
++    int32_t out;           /* sortie, en points */
++} PI_int_t;
++
++void     PI_int_init(PI_int_t *pi, int32_t gain_p_q16, int32_t gain_i_q16, int32_t limit_i, int32_t limit_out, int32_t max_step);
++int32_t  PI_int_control(PI_int_t *pi, int32_t setpoint, int32_t recent_value);
++uint32_t isqrt_u32(uint32_t x);
++
++#endif /* FOC_INT_H_ */
+diff --git a/inc/main.h b/revue-puissance/proposed/inc/main.h
+index bfb45eb..a539bc7 100644
+--- a/inc/main.h
++++ b/revue-puissance/proposed/inc/main.h
+@@ -156,13 +156,14 @@ typedef struct
+ 
+ typedef struct
+ {
+-	float       	gain_p;
+-	float       	gain_i;
++	/* REVUE-PUISSANCE P4 : gains et integrale en entiers Q16 (voir foc_int.h) : plus aucun flottant dans le PI */
++	int32_t       	gain_p;      /* Q16 : Q16(P_FACTOR_I_Q) */
++	int32_t       	gain_i;      /* Q16 */
+ 	int16_t       	limit_i;
+ 	int16_t       	limit_output;
+ 	int16_t       	recent_value;
+ 	int32_t       	setpoint;
+-	float       	integral_part;
++	int32_t       	integral_part; /* Q16 */
+ 	int16_t       	max_step;
+ 	int32_t       	out;
+ 	int8_t       	shift;
+diff --git a/revue-puissance/proposed/inc/safety.h b/revue-puissance/proposed/inc/safety.h
+new file mode 100644
+index 0000000..9f157f2
+--- /dev/null
++++ b/revue-puissance/proposed/inc/safety.h
+@@ -0,0 +1,43 @@
++/*
++ * safety.h : coupure d'urgence de l'etage de puissance et verrou de defaut.
++ *
++ * PROPOSITION POUR REVUE (revue-puissance/PROPOSITIONS.md, points P2, P3, P10). Non flashee, non validee sur moteur.
++ *
++ * Principe, repris du firmware AOCI d'origine (analyse-commande-moteur.md : "Arret sur : MOE coupe puis reset" et
++ * "defaut : MOE coupe, attente de disparition des defauts") :
++ *   - la coupure se fait par ECRITURE DIRECTE du bit MOE (TIMER_CCHP_POEN) : aucune dependance a une fonction de bibliotheque,
++ *     appelable depuis n'importe quelle interruption ou handler de faute ;
++ *   - un defaut est VERROUILLE : le moteur ne repart pas tant que la carte n'a pas ete remise sous tension ;
++ *   - aucune boucle infinie dans une interruption : l'interruption continue de tourner, sorties coupees.
++ */
++#ifndef SAFETY_H_
++#define SAFETY_H_
++
++#include "gd32f30x.h"
++#include <stdint.h>
++
++/* codes alignes sur les codes de clignotement de la LED du firmware AOCI (PB12) */
++#define FAULT_NONE            0
++#define FAULT_OVERCURRENT     3
++#define FAULT_HALL            6
++#define FAULT_VOLTAGE         8
++#define FAULT_OFFSET          10   /* offset de courant hors plage, ou arret d'urgence */
++#define FAULT_TEMP_SENSOR     15   /* sonde de temperature absente ou hors plage (defaut 15 de l'origine) */
++#define FAULT_STARTUP_ADC     20   /* nouveau : declenchement ADC absent au demarrage */
++#define FAULT_CPU_EXCEPTION   21   /* nouveau : HardFault / BusFault / UsageFault / MemManage / NMI */
++
++extern volatile uint8_t safety_fault_code_latched;
++
++/* coupe les sorties de puissance (MOE = 0), immediatement, sans appel de fonction de bibliotheque */
++static inline void safety_pwm_off(void)
++{
++    TIMER_CCHP(TIMER0) &= ~(uint32_t)TIMER_CCHP_POEN;
++}
++
++void safety_fault(uint8_t code);                 /* coupe + verrouille (le premier code est conserve) */
++static inline uint8_t safety_is_latched(void) { return safety_fault_code_latched != FAULT_NONE; }
++
++/* a appeler a chaque periode PWM sur les courants de phase bruts (points ADC, offset deja retranche) */
++void safety_check_phase_currents(int16_t i1, int16_t i2, int16_t i3);
++
++#endif /* SAFETY_H_ */

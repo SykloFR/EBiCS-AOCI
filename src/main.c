@@ -36,7 +36,12 @@ OF SUCH DAMAGE.
 #include "FOC.h"
 #include "CAN_Display.h"
 #include "parser.h"
-uint16_t adc_value[9];
+#include "aoci_board.h"
+#include "safety.h"
+#include "foc_int.h"
+/* variables partagees avec les interruptions / le DMA : volatile obligatoire en -Os (EBiCS est compile en -O0,
+   sans quoi while(!reg_ADC_flag); devient une boucle infinie et tout le code apres est supprime) */
+volatile uint16_t adc_value[9];
 
 #define FMC_PAGE_SIZE           ((uint16_t)0x800U)
 #define FMC_WRITE_START_ADDR    ((uint32_t)0x0803F000U) //Page 126, Page size 2kB
@@ -55,12 +60,12 @@ uint32_t WordNum = ((FMC_WRITE_END_ADDR - FMC_WRITE_START_ADDR) >> 2);
 
 can_trasnmit_message_struct transmit_message;
 can_receive_message_struct receive_message;
-FlagStatus receive_flag;
-FlagStatus PAS_flag=0;
-FlagStatus Speed_flag=0;
-FlagStatus reg_ADC_flag=0;
-FlagStatus OnOffButton_flag=0;
-FlagStatus BC_limit_flag=0;
+volatile FlagStatus receive_flag;
+volatile FlagStatus PAS_flag=0;
+volatile FlagStatus Speed_flag=0;
+volatile FlagStatus reg_ADC_flag=0;
+volatile FlagStatus OnOffButton_flag=0;
+volatile FlagStatus BC_limit_flag=0;
 uint8_t Backwards_counter=0;
 
 void nvic_config(void);
@@ -98,10 +103,10 @@ uint16_t map_rezi(int32_t actual_value, int32_t actual_time, int32_t timeout, in
 uint16_t update_setpoint(void);
 int16_t T_NTC(uint16_t ADC);
 float u32_to_deg=0.00000008381903171539;
-uint16_t slow_loop_counter=0;
-uint16_t PAS_counter=0;
+volatile uint16_t slow_loop_counter=0;
+volatile uint16_t PAS_counter=0;
 uint16_t torque_counter=0;
-uint16_t Speed_counter=0;
+volatile uint16_t Speed_counter=0;
 int32_t ButtonVoltageCumulated=620<<6;
 #define iabs(x) (((x) >= 0)?(x):-(x))
 #define sign(x) (((x) >= 0)?(1):(-1))
@@ -165,7 +170,7 @@ int32_t q31_rotorposition_PLL=0;
 uint8_t ui_8_PLL_counter=0;
 uint8_t shutoffcounter=0;
 uint16_t offroadcode=0;
-uint16_t offroadcounter=0;
+volatile uint16_t offroadcounter=0;
 uint16_t pulse_counter=0;
 uint8_t ui_8_PWM_ON_Flag=0;
 int32_t q31_angle_per_tic=0;
@@ -229,6 +234,45 @@ void led_spark(void)
     }
 }
 
+/* REVUE-PUISSANCE P6 : attente bornee du drapeau pose par TIMER1 (4 kHz). Une periode dure 250 us ; 20 ms sans drapeau = declenchement absent. */
+static uint8_t wait_reg_adc_flag(void)
+{
+    uint32_t guard = SystemCoreClock / 50U;   /* ~20 ms en nombre de tours de boucle (> 20 ms car un tour dure plus d'un cycle) */
+    while(!reg_ADC_flag && --guard){ }
+    return guard ? 1U : 0U;
+}
+
+/* REVUE-PUISSANCE P8 : offset du courant batterie, mesure au demarrage (constante M820 CAL_BAT_I_OFFSET = 2035 ;
+   releve sur la carte AOCI alimentee par la sonde seule : PA0 = 1951, valeur valide de l'origine : 1600..2300) */
+int32_t bat_current_offset = CAL_BAT_I_OFFSET;
+
+/* REVUE-PUISSANCE P8 : calibration des offsets de courant, moteur a l'arret et PWM coupee.
+   Moyenne de 256 echantillons de la conversion reguliere (DMA, 4 kHz) de chaque voie ; plage valide comme l'origine AOCI
+   (phases : 2048 +- 128 points ; batterie : 1600..2300). Hors plage -> faux, defaut FAULT_OFFSET (code 10 de l'origine).
+   Les offsets injectes (registres JOFR) remplacent les constantes M820 2012 / 2028 / 2020 (a verifier : moyenne mesuree
+   sur la carte AOCI sans puissance : PA5 2045, PA3 2050, PA2 2045). */
+static uint8_t calibrate_current_offsets(void)
+{
+    uint32_t s_bat = 0, s_ph3 = 0, s_ph2 = 0, s_ph1 = 0;
+    for (int i = 0; i < 256; i++) {
+        s_bat += adc_value[0];   /* PA0 courant batterie */
+        s_ph3 += adc_value[4];   /* PA5 phase 3 */
+        s_ph2 += adc_value[8];   /* PA3 phase 2 */
+        s_ph1 += adc_value[7];   /* PA2 phase 1 */
+        reg_ADC_flag = 0;
+        if(!wait_reg_adc_flag()) return 0;
+        fwdgt_counter_reload();
+    }
+    int32_t o_bat = (int32_t)(s_bat >> 8), o_ph3 = (int32_t)(s_ph3 >> 8), o_ph2 = (int32_t)(s_ph2 >> 8), o_ph1 = (int32_t)(s_ph1 >> 8);
+    if (o_bat < 1600 || o_bat > 2300) return 0;
+    if (abs(o_ph3 - 2048) > 128 || abs(o_ph2 - 2048) > 128 || abs(o_ph1 - 2048) > 128) return 0;
+    bat_current_offset = o_bat;
+    adc_inserted_channel_offset_config(ADC0, ADC_INSERTED_CHANNEL_0, (uint16_t)o_ph3);
+    adc_inserted_channel_offset_config(ADC1, ADC_INSERTED_CHANNEL_0, (uint16_t)o_ph2);
+    adc_inserted_channel_offset_config(ADC2, ADC_INSERTED_CHANNEL_0, (uint16_t)o_ph1);
+    return 1;
+}
+
 /*!
     \brief      main function
     \param[in]  none
@@ -252,13 +296,17 @@ int main(void)
     __enable_irq();
 
 	//SCB->VTOR = 0x08004000;
-	fwdgt_config(65000, FWDGT_PSC_DIV256);
+	/* REVUE-PUISSANCE P5 : chien de garde ~200 ms (/16 -> 2,5 kHz, 500 coups). L'ancien fwdgt_config(65000, DIV256) etait tronque
+	   a 12 bits (65000 -> 3560, ~23 s) et le chien n'etait de toute facon jamais demarre (pas de fwdgt_enable). Demarre plus bas,
+	   apres l'initialisation (les attentes du demarrage durent ~0,6 s). L'origine AOCI : /16, 4000 coups = 1,6 s. */
+	fwdgt_config(500, FWDGT_PSC_DIV16);
 #ifdef __FIRMWARE_VERSION_DEFINE
      uint32_t fw_ver = 0;
 #endif
     fwdgt_counter_reload();
     //receive_flag = RESET;
-    SystemInit();
+    /* SystemInit() est deja appele par le demarrage (startup_gd32f10x_hd.S) avant main() :
+       un second appel (present dans EBiCS) repasserait inutilement l'horloge sur le HSI 8 MHz. */
     /* system clocks configuration */
 
     rcu_config();
@@ -332,17 +380,17 @@ int main(void)
 	MP.angle_correction=0;
 
 
-	//init PI structs
-	PI_id.gain_i=I_FACTOR_I_D;
-	PI_id.gain_p=P_FACTOR_I_D;
+	//init PI structs (REVUE-PUISSANCE P4 : gains en Q16, calcules a la compilation)
+	PI_id.gain_i=Q16(I_FACTOR_I_D);
+	PI_id.gain_p=Q16(P_FACTOR_I_D);
 	PI_id.setpoint = 0;
 	PI_id.limit_output = _U_MAX;
 	PI_id.max_step=15;
 	PI_id.shift=11;
 	PI_id.limit_i=1800;
 
-	PI_iq.gain_i=I_FACTOR_I_Q;
-	PI_iq.gain_p=P_FACTOR_I_Q;
+	PI_iq.gain_i=Q16(I_FACTOR_I_Q);
+	PI_iq.gain_p=Q16(P_FACTOR_I_Q);
 	PI_iq.setpoint = 0;
 	PI_iq.limit_output = _U_MAX;
 	PI_iq.max_step=15;
@@ -358,14 +406,16 @@ int main(void)
     read_virtual_eeprom();
     parse_MOparams(&MP);
 
+    /* REVUE-PUISSANCE P6 : attentes du demarrage bornees (avant : while(!reg_ADC_flag) sans fin si le declenchement ADC
+       ne part pas, avec la puissance dans un etat indetermine). En cas d'echec : defaut verrouille, sorties coupees. */
     for (int i = 0; i < 2000; i++) {//let the ADC stabilize
-    	while(!reg_ADC_flag);
+    	if(!wait_reg_adc_flag()){ safety_fault(FAULT_STARTUP_ADC); break; }
     	reg_ADC_flag=0;
     }
 
     for (int i = 0; i < 64; i++) {// get torquesensor offset
     	torque_offset_correction+=adc_value[2];
-    	while(!reg_ADC_flag);
+    	if(!wait_reg_adc_flag()){ safety_fault(FAULT_STARTUP_ADC); break; }
     	reg_ADC_flag=0;
 
     }
@@ -373,8 +423,15 @@ int main(void)
     torque_offset_correction=740-((torque_offset_correction*3300)>>12);
   //  while((adc_value[1])>3000);//safety for bricked throttle
 
+    /* REVUE-PUISSANCE P8 : offsets des capteurs de courant mesures a chaque demarrage, sorties coupees (voir calibrate_current_offsets) */
+    if(!safety_is_latched() && !calibrate_current_offsets()){
+    	safety_fault(FAULT_OFFSET);
+    }
+
 	helper=((float)1.0/((float)1.0+(float)MP.Cadence_exponent));
     //autodetect();
+
+    fwdgt_enable(); /* REVUE-PUISSANCE P5 : le chien de garde demarre ici ; rechargement uniquement dans la boucle principale */
 
     while (1){
     	fwdgt_counter_reload();
@@ -397,9 +454,11 @@ int main(void)
 
 
 
-    	// switch lights
-    	if(MS.light_flag&&!gpio_input_bit_get(GPIOB,GPIO_PIN_10))GPIO_BOP(GPIOB) = GPIO_PIN_10;
-    	if(!MS.light_flag&&gpio_input_bit_get(GPIOB,GPIO_PIN_10)) GPIO_BC(GPIOB) = GPIO_PIN_10;
+    	// switch lights : sorties actives a l'etat BAS sur le controleur AOCI
+    	// (PB10 = feu avant, PA15 = feu arriere/stop ; releve live du firmware d'origine : sorties push-pull, ODR = 1 = eteint)
+    	// Arriere : allume avec les feux ou au freinage. Le firmware d'origine fait un veilleuse a 500 Hz / 50 % ; ici allume fixe.
+    	gpio_bit_write(LIGHT_FRONT_PORT, LIGHT_FRONT_PIN, MS.light_flag ? RESET : SET);
+    	gpio_bit_write(LIGHT_REAR_PORT, LIGHT_REAR_PIN, (MS.light_flag || MS.brake_active_flag) ? RESET : SET);
 
     	//check brake sensor state
     	if(!gpio_input_bit_get(GPIOC,GPIO_PIN_13))MS.brake_active_flag=1;
@@ -466,7 +525,8 @@ int main(void)
             }//end slow loop
 
             if(MS.i_q_setpoint){
-            	if(!ui_8_PWM_ON_Flag){
+            	/* REVUE-PUISSANCE P2 : jamais de remise en route tant qu'un defaut est verrouille (remise sous tension requise) */
+            	if(!ui_8_PWM_ON_Flag && !safety_is_latched()){
             		get_standstill_position();
 					timer_primary_output_config(TIMER0,ENABLE);
 					uint16_half_rotation_counter=0;
@@ -542,10 +602,18 @@ void can_networking_init(void)
     can_parameter.trans_fifo_order = DISABLE;
     can_parameter.working_mode = CAN_NORMAL_MODE;
     can_parameter.resync_jump_width = CAN_BT_SJW_1TQ;
-    can_parameter.time_segment_1 = CAN_BT_BS1_7TQ;
-    can_parameter.time_segment_2 = CAN_BT_BS2_2TQ;
-    /* baudrate 1Mbps */
-    can_parameter.prescaler = 24;
+    /* 250 kbit/s, comme le firmware AOCI d'origine :
+       - nominal : SYSCLK 66 MHz, APB1 33 MHz, prescaler 11 -> 3 MHz, 1+9+2 = 12 tq (echantillonnage 83 %) ;
+       - repli HSI : SYSCLK 64 MHz, APB1 32 MHz, prescaler 8 -> 4 MHz, 1+13+2 = 16 tq. */
+    if (SystemCoreClock == 66000000U) {
+        can_parameter.time_segment_1 = CAN_BT_BS1_9TQ;
+        can_parameter.time_segment_2 = CAN_BT_BS2_2TQ;
+        can_parameter.prescaler = 11;
+    } else {
+        can_parameter.time_segment_1 = CAN_BT_BS1_13TQ;
+        can_parameter.time_segment_2 = CAN_BT_BS2_2TQ;
+        can_parameter.prescaler = 8;
+    }
     can_init(CAN0, &can_parameter);
 
     /* initialize filter */
@@ -592,7 +660,16 @@ void gpio_config(void)
     gpio_init(GPIOC, GPIO_MODE_AIN, GPIO_OSPEED_MAX, GPIO_PIN_3|GPIO_PIN_4); //Battery Voltage
     gpio_init(GPIOB, GPIO_MODE_AIN, GPIO_OSPEED_MAX, GPIO_PIN_1); // Motor Temp
 
-    gpio_init(GPIOB, GPIO_MODE_OUT_PP, GPIO_OSPEED_50MHZ, GPIO_PIN_3|GPIO_PIN_4|GPIO_PIN_5|GPIO_PIN_6|GPIO_PIN_12);
+    /* PB3 = 12 V, PB4 = DC/DC, PB5 = afficheur, PB12 = LED (comme le firmware d'origine, sorties push-pull).
+       PB6 n'est PAS une sortie sur le controleur AOCI (entree flottante dans le firmware d'origine) :
+       l'ancien "DC/DC on" de la M820 est retire pour ne pas forcer cette broche. */
+    gpio_init(GPIOB, GPIO_MODE_OUT_PP, GPIO_OSPEED_50MHZ, GPIO_PIN_3|GPIO_PIN_4|GPIO_PIN_5|GPIO_PIN_12);
+
+    /* Eclairage actif bas : niveau haut (eteint) dans ODR AVANT de passer la broche en sortie, sans impulsion */
+    GPIO_BOP(LIGHT_FRONT_PORT) = LIGHT_FRONT_PIN;
+    GPIO_BOP(LIGHT_REAR_PORT) = LIGHT_REAR_PIN;
+    gpio_init(LIGHT_FRONT_PORT, GPIO_MODE_OUT_PP, GPIO_OSPEED_50MHZ, LIGHT_FRONT_PIN);
+    gpio_init(LIGHT_REAR_PORT, GPIO_MODE_OUT_PP, GPIO_OSPEED_50MHZ, LIGHT_REAR_PIN);
 
 	//delay_1ms(200);
     GPIO_BOP(GPIOB) = GPIO_PIN_4; //set Pin4 (set by Bootloader on BL38)
@@ -706,18 +783,22 @@ void adc_config(void)
     adc_regular_channel_config(ADC0, 7, ADC_CHANNEL_2, ADC_SAMPLETIME_239POINT5);// Phase1 current
     adc_regular_channel_config(ADC0, 8, ADC_CHANNEL_3, ADC_SAMPLETIME_239POINT5);// Phase2 current
 
-    adc_inserted_channel_config(ADC0, 0, ADC_CHANNEL_5, ADC_SAMPLETIME_55POINT5);
-    adc_inserted_channel_offset_config(ADC0, ADC_INSERTED_CHANNEL_0, 2012); //hardcoded, to be improved
+    /* REVUE-PUISSANCE P1 : conversions injectees (courants de phase) a 7,5 cycles comme le firmware AOCI d'origine
+       (SMPR relevees par SWD : ADC1 PA3 = 7,5 ; ADC2 PA2 et PA5 = 7,5), soit (7,5 + 12,5) / 11 MHz = 1,8 us = 120 ticks.
+       EBiCS : 55,5 cycles = 6,2 us = 409 ticks, plus long que la fenetre basse disponible a 16,5 kHz (voir PROPOSITIONS.md P1).
+       Les offsets ci-dessous sont des valeurs de depart : calibrate_current_offsets() les remplace au demarrage. */
+    adc_inserted_channel_config(ADC0, 0, ADC_CHANNEL_5, ADC_SAMPLETIME_7POINT5);
+    adc_inserted_channel_offset_config(ADC0, ADC_INSERTED_CHANNEL_0, 2045);
 
-    adc_inserted_channel_config(ADC1, 0, ADC_CHANNEL_3, ADC_SAMPLETIME_55POINT5);
+    adc_inserted_channel_config(ADC1, 0, ADC_CHANNEL_3, ADC_SAMPLETIME_7POINT5);
 //    adc_inserted_channel_config(ADC1, 1, ADC_CHANNEL_5, ADC_SAMPLETIME_55POINT5);
 
-    adc_inserted_channel_offset_config(ADC1, ADC_INSERTED_CHANNEL_0, 2028); //hardcoded, to be improved
+    adc_inserted_channel_offset_config(ADC1, ADC_INSERTED_CHANNEL_0, 2050);
 //    adc_inserted_channel_offset_config(ADC1, ADC_INSERTED_CHANNEL_1, 2033); //hardcoded, to be improved
 
 
-    adc_inserted_channel_config(ADC2, 0, ADC_CHANNEL_2, ADC_SAMPLETIME_55POINT5);
-    adc_inserted_channel_offset_config(ADC2, ADC_INSERTED_CHANNEL_0, 2020); //hardcoded, to be improved
+    adc_inserted_channel_config(ADC2, 0, ADC_CHANNEL_2, ADC_SAMPLETIME_7POINT5);
+    adc_inserted_channel_offset_config(ADC2, ADC_INSERTED_CHANNEL_0, 2045);
 
 
     /* ADC trigger config */
@@ -820,9 +901,12 @@ void timer0_config(void)
 	    timer_channel_output_shadow_config(TIMER0,TIMER_CH_3,TIMER_OC_SHADOW_DISABLE);
 	    timer_automatic_output_disable(TIMER0);
 	    /* automatic output enable, break, dead time and lock configuration*/
-	    timer_breakpara.runoffstate      = TIMER_ROS_STATE_DISABLE;
-	    timer_breakpara.ideloffstate     = TIMER_IOS_STATE_DISABLE ;
-	    timer_breakpara.deadtime         = 32;
+	    /* REVUE-PUISSANCE P1/P10 : temps mort 25 (379 ns a 66 MHz) comme l'origine AOCI (BDTR relevee : DTG = 25) ; avant : 32 (calcule
+	       pour 120 MHz : 267 ns). Le driver EG2123A ajoute 100 a 300 ns. OSSR/OSSI actives comme l'origine (BDTR = 0xC19) :
+	       sorties forcees au niveau de repos (haut = bas, bas = haut) quand MOE = 0, et non en haute impedance. */
+	    timer_breakpara.runoffstate      = TIMER_ROS_STATE_ENABLE;
+	    timer_breakpara.ideloffstate     = TIMER_IOS_STATE_ENABLE ;
+	    timer_breakpara.deadtime         = 25;
 	    timer_breakpara.breakpolarity    = TIMER_BREAK_POLARITY_HIGH;
 	    timer_breakpara.outputautostate  = TIMER_OUTAUTO_DISABLE;
 	    timer_breakpara.protectmode      = TIMER_CCHP_PROT_0;
@@ -846,11 +930,13 @@ void timer1_config(void) //running at 6kHz interrupt frequency
 
     rcu_periph_clock_enable(RCU_TIMER1);
 
-    /* TIMER0 configuration */
-    timer_initpara.prescaler         = 2;
+    /* TIMER1 configuration : base de temps lente 4 kHz (declenche les conversions regulieres).
+       Horloge timers APB1 = 2 x APB1 = SYSCLK (66 MHz nominal, 64 MHz en repli) :
+       prescaler 1 -> 33 MHz, periode = 33 MHz / 4 kHz - 1 = 8249 (7999 en repli). */
+    timer_initpara.prescaler         = 1;
     timer_initpara.alignedmode       = TIMER_COUNTER_EDGE;
     timer_initpara.counterdirection  = TIMER_COUNTER_UP;
-    timer_initpara.period            = 9999;
+    timer_initpara.period            = (SystemCoreClock / 2U) / 4000U - 1U;
     timer_initpara.clockdivision     = TIMER_CKDIV_DIV1;
     timer_initpara.repetitioncounter = 0;
     timer_init(TIMER1, &timer_initpara);
@@ -896,8 +982,9 @@ void timer2_config(void) //for hall sensor processing.
 
 
 
-    /* TIMER2 configuration */
-    timer_initpara.prescaler         = 239; //120MHz/(239+1)=500kHz
+    /* TIMER2 configuration : base de temps Hall 500 kHz (le calcul de vitesse suppose 500 kHz),
+       horloge timers = SYSCLK : 66 MHz / 132 = 500 kHz (prescaler 131) ; repli 64 MHz : prescaler 127 */
+    timer_initpara.prescaler         = (uint16_t)(SystemCoreClock / 500000U - 1U);
     timer_initpara.alignedmode       = TIMER_COUNTER_EDGE;
     timer_initpara.counterdirection  = TIMER_COUNTER_UP;
     timer_initpara.period            = 0xFFFF;
@@ -999,7 +1086,7 @@ void UART4_init(void)
 
 void TIMER1_IRQHandler(void) // regular ADC processing and common slow timing tasks
 {
-	fwdgt_counter_reload();
+	/* REVUE-PUISSANCE P5 : pas de fwdgt_counter_reload() ici */
 	if(SET == timer_interrupt_flag_get(TIMER1,TIMER_INT_FLAG_UP)){
         /* clear channel 0 interrupt bit */
         timer_interrupt_flag_clear(TIMER1,TIMER_INT_FLAG_UP);
@@ -1015,7 +1102,7 @@ void TIMER1_IRQHandler(void) // regular ADC processing and common slow timing ta
 
 void TIMER2_IRQHandler(void)
 {
-	fwdgt_counter_reload();
+	/* REVUE-PUISSANCE P5 : pas de fwdgt_counter_reload() ici */
     if(SET == timer_interrupt_flag_get(TIMER2,TIMER_INT_FLAG_CH0)){
         /* clear channel 0 interrupt bit */
         timer_interrupt_flag_clear(TIMER2,TIMER_INT_FLAG_CH0);
@@ -1209,7 +1296,7 @@ void Speed_processing(void)
 void reg_ADC_processing(void)
 {
 	battery_current_cumulated-=battery_current_cumulated>>6;
-	battery_current_cumulated+= (adc_value[0]-CAL_BAT_I_OFFSET);
+	battery_current_cumulated+= (adc_value[0]-bat_current_offset);   /* REVUE-PUISSANCE P8 : offset mesure au demarrage */
 	MS.Battery_Current=(int32_t)((float)(battery_current_cumulated>>6)*CAL_BAT_I); //Battery current in mA
 	voltage_raw_cumulated-=voltage_raw_cumulated>>6;
 	voltage_raw_cumulated+=adc_value[3];
@@ -1285,7 +1372,7 @@ void runPIcontrol(void){
 	//check, if Battery Current limit is exceeded
 	if(MS.Battery_Current>MP.battery_current_max) BC_limit_flag=1;
 	//check, if theoretical Battery current would be below limit with some hysteresis
-	if((MS.i_q_setpoint*CAL_I*MS.u_abs)>>11<(MP.battery_current_max*0.9)) BC_limit_flag=0; //duty cycle is scaled to 2048 = 2^11
+	if((MS.i_q_setpoint*CAL_I*MS.u_abs)>>11<((int32_t)MP.battery_current_max*9/10)) BC_limit_flag=0; //duty cycle is scaled to 2048 = 2^11 ; REVUE-PUISSANCE P4 : *0.9 en entier (avant : produit en double emule dans l'interruption)
 
 	if(!BC_limit_flag){
 	//control iq
@@ -1307,7 +1394,8 @@ void runPIcontrol(void){
 
 	  //circle limitation
 
-	  MS.u_abs = (int32_t)sqrtf((float)(q31_u_d_temp*q31_u_d_temp+q31_u_q_temp*q31_u_q_temp));
+	  /* REVUE-PUISSANCE P4 : racine carree entiere (avant : sqrtf flottant emule, ~1 000 cycles dans l'interruption rapide) */
+	  MS.u_abs = (int32_t)isqrt_u32((uint32_t)(q31_u_d_temp*q31_u_d_temp+q31_u_q_temp*q31_u_q_temp));
 //	  arm_sqrt_q31((q31_u_d_temp*q31_u_d_temp+q31_u_q_temp*q31_u_q_temp)<<1,&MS.u_abs);
 //	  MS.u_abs = (MS.u_abs>>16)+1;
 
@@ -1325,6 +1413,9 @@ void runPIcontrol(void){
 }
 
 void autodetect(void) {
+	/* REVUE-PUISSANCE P2 : l'apprentissage (rotation en boucle ouverte, ~5,4 s) ne demarre pas si un defaut est verrouille,
+	   et recharge le chien de garde a chaque pas (le chien de garde du portage est court : ~200 ms). */
+	if(safety_is_latched()) return;
 	timer_primary_output_config(TIMER0,ENABLE);
 	ui_8_PWM_ON_Flag=1;
 	MS.hall_angle_detect_flag = 0; //set uq to contstant value in FOC.c for open loop control
@@ -1336,6 +1427,8 @@ void autodetect(void) {
 	for (int i = 0; i < 1080; i++) {
 		q31_rotorposition_absolute += one_deg; //drive motor in open loop with steps of 1 deg
 		delay_1ms(5);
+		fwdgt_counter_reload();
+		if(safety_is_latched()) break;   /* defaut pendant l'apprentissage : on arrete la rotation */
 
 
 		if (ui8_hall_state_old != ui8_hall_state) {
@@ -1445,7 +1538,7 @@ void autodetect(void) {
 void ADC0_1_IRQHandler(void)
 {
     /* clear the ADC flag */
-	fwdgt_counter_reload();
+	/* REVUE-PUISSANCE P5 : plus de rechargement du chien de garde dans l'interruption (il masquait un blocage de la boucle principale) */
     adc_interrupt_flag_clear(ADC1, ADC_INT_FLAG_EOIC);
     /* read ADC inserted group data register */
 
@@ -1453,6 +1546,9 @@ void ADC0_1_IRQHandler(void)
     i16_ph1_current = adc_inserted_data_read(ADC2, ADC_INSERTED_CHANNEL_0);
     i16_ph2_current = adc_inserted_data_read(ADC1, ADC_INSERTED_CHANNEL_0);
     i16_ph3_current = adc_inserted_data_read(ADC0, ADC_INSERTED_CHANNEL_0);
+
+    /* REVUE-PUISSANCE P2 : surintensite sur les mesures brutes, a chaque periode PWM, avant tout calcul */
+    safety_check_phase_currents(i16_ph1_current, i16_ph2_current, i16_ph3_current);
 
 
 	switch (MS.char_dyn_adc_state) //read in according to state
@@ -1518,7 +1614,7 @@ void ADC0_1_IRQHandler(void)
 	dyn_adc_state(q31_rotorposition_absolute);
 
     //q31_rotorposition_absolute=(int16_t)((180.0/75.0)*(float)(1<<31));
-    if(ui_8_PWM_ON_Flag){
+    if(ui_8_PWM_ON_Flag && !safety_is_latched()){
 		FOC_calculation(i16_ph1_current, i16_ph2_current,
 					q31_rotorposition_absolute,
 					(((int16_t) MP.reverse * i8_reverse_flag)
@@ -1894,7 +1990,16 @@ uint16_t update_setpoint(void){
 	            MS.i_q_setpoint_temp=map(voltage_raw_filtered, MP.voltage_min,(MP.voltage_min+176),0,MS.i_q_setpoint_temp);
 
 	            //motor temperature ramp down between 110 and 130°C
-	            MS.i_q_setpoint_temp=map(MS.int_Temperature,110,130,MS.i_q_setpoint_temp,0);
+	            /* REVUE-PUISSANCE P9 : reduction progressive du courant de 85 a 100 degres C (100 % -> 33 %), comme le firmware AOCI
+	               d'origine sur la sonde du controleur (EBiCS : 110 a 130 degres, valeurs d'un moteur de moyeu Bafang).
+	               ATTENTION : EBiCS lit PB1 (adc_value[6]) ; sur AOCI PB1 est la sonde du CONTROLEUR, PB0 celle du moteur.
+	               Sonde absente ou hors plage (ADC > 4000 ou < 50) : pas d'assistance, comme le defaut 15 de l'origine. */
+	            MS.i_q_setpoint_temp=map(MS.int_Temperature,85,100,MS.i_q_setpoint_temp,MS.i_q_setpoint_temp/3);
+#if (TEMP_SENSOR_REQUIRED)
+	            if(adc_value[6]>4000||adc_value[6]<50){
+	            	MS.i_q_setpoint_temp=0;
+	            }
+#endif
 	            if(MP.legalflag&&!MS.offroadflag){
 
 					if((uint16_cadence_filtered>>3)>15){

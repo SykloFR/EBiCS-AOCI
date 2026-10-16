@@ -13,14 +13,14 @@ CORE   ?= m4
 ifeq ($(CORE),m3)
 BUILD   = build-m3
 CPU     = -mcpu=cortex-m3 -mthumb -mfloat-abi=soft
-DEFS    = -DGD32F10X_HD -DUSE_STDPERIPH_DRIVER -DARM_MATH_CM3
+DEFS    = -DGD32F10X_HD -DUSE_STDPERIPH_DRIVER -DARM_MATH_CM3 -DHXTAL_VALUE=12000000U
 INCS    = -Iport_f10x -Iinc -IFirmware_F10x/CMSIS -IFirmware_F10x/CMSIS/GD/GD32F10x/Include \
           -IFirmware_F10x/GD32F10x_standard_peripheral/Include
 LDSCRIPT = port_f10x/aoci_flash.ld
 DSPLIB  =
 LIBSRCS = $(wildcard Firmware_F10x/GD32F10x_standard_peripheral/Source/*.c) \
-          $(wildcard Firmware_F10x/CMSIS/GD/GD32F10x/Source/*.c) \
-          Firmware_F10x/DSP/arm_sin_cos_q31.c Firmware_F10x/DSP/arm_common_tables.c
+          Firmware_F10x/DSP/arm_sin_cos_q31.c Firmware_F10x/DSP/arm_common_tables.c \
+          port_f10x/system_aoci.c
 ASRCS   = port_f10x/startup_gd32f10x_hd.S
 else
 BUILD   = build
@@ -35,25 +35,48 @@ LIBSRCS = $(wildcard Firmware/GD32F30x_standard_peripheral/Source/*.c) \
 ASRCS   = gcc_startup/startup_gd32f30x_hd.S
 endif
 
+# Brouillon pour la revue puissance (voir revue-puissance/README.md) : mingw32-make CORE=m3 PROP=1 aoci
+# -> dossier build-m3-prop, image nommee ..._REVUE_NE_PAS_FLASHER.bin
+ifeq ($(PROP),1)
+SRCDIR   = revue-puissance/proposed/src
+INCS    := -Irevue-puissance/proposed/inc $(INCS)
+BUILD   := $(BUILD)-prop
+AOCI_OUT = $(BUILD)/ebics_REVUE_NE_PAS_FLASHER.bin
+else
+SRCDIR   = src
+AOCI_OUT = $(BUILD)/ebics_aoci_full.bin
+endif
+
+ifeq ($(OS),Windows_NT)
+MKDIR_P = @if not exist "$(subst /,\,$(1))" mkdir "$(subst /,\,$(1))"
+RM_RF   = if exist $(subst /,\,$(BUILD)) rmdir /s /q $(subst /,\,$(BUILD))
+else
+MKDIR_P = @mkdir -p $(1)
+RM_RF   = rm -rf $(BUILD)
+endif
+
 TARGET  = $(BUILD)/ebics
 
 CFLAGS  = $(CPU) $(DEFS) $(INCS) -Os -g -std=gnu99 -Wall \
-          -ffunction-sections -fdata-sections
+          -ffunction-sections -fdata-sections -MMD -MP
 LDFLAGS = $(CPU) -T$(LDSCRIPT) -Wl,--gc-sections \
           -Wl,-Map=$(TARGET).map --specs=nano.specs --specs=nosys.specs \
           $(DSPLIB) -lm
 
-SRCS    = $(wildcard src/*.c) $(LIBSRCS)
+SRCS    = $(wildcard $(SRCDIR)/*.c) $(LIBSRCS)
 OBJS    = $(SRCS:%.c=$(BUILD)/%.o) $(ASRCS:%.S=$(BUILD)/%.o)
+
+# dependances des en-tetes (sans cela, une modification de config.h ou main.h ne recompile rien)
+-include $(OBJS:.o=.d)
 
 all: $(TARGET).bin
 
 $(BUILD)/%.o: %.c
-	@mkdir -p $(dir $@)
+	$(call MKDIR_P,$(dir $@))
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/%.o: %.S
-	@mkdir -p $(dir $@)
+	$(call MKDIR_P,$(dir $@))
 	$(CC) $(CPU) -x assembler-with-cpp -c $< -o $@
 
 $(TARGET).elf: $(OBJS)
@@ -63,7 +86,11 @@ $(TARGET).elf: $(OBJS)
 $(TARGET).bin: $(TARGET).elf
 	$(OBJCOPY) -O binary $< $@
 
-clean:
-	rm -rf $(BUILD)
+# Image complete pour le bootloader AOCI (CRC32 a 0x0803AFC0) : mingw32-make CORE=m3 aoci
+aoci: $(TARGET).bin
+	python tools/make_aoci_image.py $(TARGET).bin $(AOCI_OUT)
 
-.PHONY: all clean
+clean:
+	$(RM_RF)
+
+.PHONY: all aoci clean

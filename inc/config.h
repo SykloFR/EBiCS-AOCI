@@ -16,15 +16,18 @@
 #define INTERNAL 0
 //----------------------------------------------------------------------
 // advanced setting, don't touch, if you don't know what you are doing!
-#define _T 3750//5625
+/* REVUE-PUISSANCE P1 : constantes de temps recalculees pour le controleur AOCI (SYSCLK 66 MHz) */
+#define _T 2000  // demi-periode du compteur centre : 66 MHz / (2 x 2000) = 16,5 kHz (ARR = 2000 releve sur le firmware AOCI d'origine ; 3750 pour 120 MHz sur le GD32F303)
 #define TRIGGER_OFFSET_ADC 10
 #define TRIGGER_DEFAULT _T-TRIGGER_OFFSET_ADC
-#define DYNAMIC_ADC_THRESHOLD 3750 //to be tested
+#define ADC_CONV_TICKS 120      // (7,5 + 12,5 cycles ADC) x 6 (SYSCLK / horloge ADC) : duree d'une conversion injectee en ticks de 66 MHz
+#define ADC_SETTLE_TICKS 60     // temps mort 25 + EG2123A (100 a 300 ns) + rebond : ESTIMATION, a mesurer a l'oscilloscope
+#define DYNAMIC_ADC_THRESHOLD (_T-TRIGGER_OFFSET_ADC-ADC_CONV_TICKS-ADC_SETTLE_TICKS) // 1810 : au-dela, le declenchement suit la phase la plus chargee
 #define CAL_BAT_V 17
 #define CAL_BAT_I 37.0
 #define CAL_BAT_I_OFFSET 2035
 #define CAL_V 15LL<<8
-#define CAL_I 95 //Zurückgerechnet aus Batteriestrom = Tastverhältnis * Motorstrom
+#define CAL_I 95 //Zurueckgerechnet aus Batteriestrom = Tastverhaeltnis * Motorstrom
 #define BOOTLOADER 820
 // BionX IGH3
 //#define INDUCTANCE 12LL
@@ -44,7 +47,7 @@
 //#define INDIVIDUAL_MODES
 //#define SPEEDTHROTTLE
 //#define PRINTDEBUG_UART
-#define PRINTDEBUG_CAN
+//#define PRINTDEBUG_CAN // desactive sur AOCI : trame de debug 0x7AB non prevue sur le bus afficheur
 #define R_TEMP_PULLUP 3500
 #define SIXSTEPTHRESHOLD 10000
 #define SPEED_PLL 0 //1 for using PLL, 0 for angle extrapolation
@@ -91,17 +94,25 @@
 #define SPEEDSOURCE EXTERNAL
 #define SPEEDFILTER 1
 #define SPDSHFT 0
-#define LEGALFLAG 0
+#define LEGALFLAG 1 //1 = limite de vitesse appliquee (EN 15194, 25 km/h) sauf mode offroad : decision Yanni 16/10/2026
 
 //---------------------------------------------------------------------
 //power settings
-#define PH_CURRENT_MAX 700 //uses field Max current on low charge Para1[9]
-#define BATTERYCURRENT_MAX 12000
+/* REVUE-PUISSANCE P2 : echelles de courant du controleur AOCI.
+   Courant de phase : seuil d'origine = I(A) x R x 2 x 32768 / 1000 / 1,956 unites de 16 par point, R = 1,5 (octet de config flash 0x0803D800 = 2) :
+   80 A = 251 points, soit ~3,14 points/A (et non ~100 points/A comme supposent les valeurs M820 d'EBiCS). A CONFIRMER par mesure au banc.
+   Courant batterie : 27,5 points/A (shunt R002), CAL_BAT_I = 37 mA/point convient. */
+#define PH_COUNTS_PER_A_X100 314
+#define PH_CURRENT_MAX 60        // PREMIER ESSAI prudent : ~19 A de phase. EBiCS/M820 : 700 (= ~220 A sur l'echelle AOCI !). A fixer par le developpeur.
+#define BATTERYCURRENT_MAX 15000 // mA : plafond du firmware AOCI 36V 15A (EBiCS/M820 : 12000)
+#define PH_CURRENT_TRIP 377      // points : 120 A nominal du palier 3 du firmware AOCI d'origine (80 / 100 / 120 A). A relire.
+#define PH_TRIP_PERIODS 6        // periodes PWM consecutives au-dessus du seuil avant coupure (origine : 6, soit ~0,36 ms)
+#define TEMP_SENSOR_REQUIRED 1   // 1 : sonde de temperature absente / hors plage = pas d'assistance (a mettre a 0 pour un essai de banc sans NTC)
 #define REVERSE -1 //1 for normal direction, -1 for reverse //use field Motor Type (Para1[18]) 1 = 1, 0 = -1
 #define PUSHASSIST_CURRENT 300
-#define VOLTAGE_MIN 1320 //33V
-#define SYSTEM_VOLTAGE 52// in V
-#define MAX_VOLTAGE 59// in V
+#define VOLTAGE_MIN 1773 //30,0 V : coupure basse tension du firmware AOCI 36V15A d'origine (pack 10S). Unite = points ADC (comparaison avec voltage_raw_filtered), 59,1 points/V sur la carte AOCI : 30 x 59,1 = 1773. Rampe d'assistance sur les 176 points suivants (~3 V).
+#define SYSTEM_VOLTAGE 36// in V (cible AOCI 36V 15A, pack 10S)
+#define MAX_VOLTAGE 42// in V (10S charge a 4,2 V/element)
 
 //---------------------------------------------------------------------
 //torquesensor settings

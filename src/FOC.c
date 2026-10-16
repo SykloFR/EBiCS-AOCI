@@ -102,13 +102,9 @@ void FOC_calculation(int16_t int16_i_as, int16_t int16_i_bs, q31_t q31_teta, int
 	MS_FOC->i_d=q31_i_d_fil>>3;
 
 
-	if(MS_FOC->i_d>(PH_CURRENT_MAX<<2)){
-		timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_0,_T>>1);
-		timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_1,_T>>1);
-		timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_2,_T>>1);
-		timer_primary_output_config(TIMER0,DISABLE)	;	//disable PWM if overcurrent detected
-		while(1){}						//stay here until hard reset
-	}
+	/* REVUE-PUISSANCE P2 : l'ancienne coupure (i_d filtre > PH_CURRENT_MAX<<2 = 2800 points, puis while(1) dans l'interruption)
+	   ne pouvait jamais se declencher : 2800 depasse la pleine echelle de l'ADC (+-2048 points), et elle ne regardait que
+	   l'axe d filtre. Remplacee par safety_check_phase_currents() appelee sur les mesures brutes dans ADC0_1_IRQHandler. */
 
 
 
@@ -158,30 +154,37 @@ void FOC_calculation(int16_t int16_i_as, int16_t int16_i_bs, q31_t q31_teta, int
 
 }
 //PI Control for quadrature current iq (torque)
+//REVUE-PUISSANCE P4 : version entiere (Q16) du PI d'EBiCS, meme comportement a +-2 points pres (tools/bench/host_test_foc_int.c),
+//cout mesure sur la carte : 479 cycles au pire contre 2901 en flottant emule (tools/bench/t5_ram_cost.py).
 q31_t PI_control (PI_control_t* PI_c)
 {
-	float Delta = (PI_c->setpoint - PI_c->recent_value);
-    float p_part; //proportional part
-    p_part= Delta*PI_c->gain_p;
-    temp5=p_part;
-    PI_c->integral_part += Delta*PI_c->gain_i;
+	/* delta sature pour qu'aucun produit ne depasse 2^30 */
+	int32_t gmax = (PI_c->gain_p > PI_c->gain_i) ? PI_c->gain_p : PI_c->gain_i;
+	int32_t dmax = (gmax > 0) ? (0x3FFFFFFF / gmax) : 0x3FFFFFFF;
+	int32_t delta = PI_c->setpoint - PI_c->recent_value;
+	if (delta > dmax) delta = dmax;
+	if (delta < -dmax) delta = -dmax;
 
+	int32_t p_q16 = delta * PI_c->gain_p;
+	int32_t lim_q16 = ((int32_t)PI_c->limit_i) << 16;
+	temp5 = p_q16 >> 16;
+	PI_c->integral_part += delta * PI_c->gain_i;
 
-  if (PI_c->integral_part > PI_c->limit_i) PI_c->integral_part = PI_c->limit_i;
-  if (PI_c->integral_part < -(PI_c->limit_i)) PI_c->integral_part = -(PI_c->limit_i);
-//  if(!(TIMER_CCHP(TIMER0)&(uint32_t)TIMER_CCHP_POEN))PI_c->integral_part = 0 ; //reset integral part if PWM is disabled
+	if (PI_c->integral_part > lim_q16) PI_c->integral_part = lim_q16;
+	if (PI_c->integral_part < -lim_q16) PI_c->integral_part = -lim_q16;
 
-    //avoid too big steps in one loop run
-  if (p_part+PI_c->integral_part > PI_c->out+PI_c->max_step) PI_c->out+=PI_c->max_step;
-  else if  (p_part+PI_c->integral_part < PI_c->out-PI_c->max_step)PI_c->out-=PI_c->max_step;
-  else PI_c->out=(p_part+PI_c->integral_part);
+	int32_t sum = p_q16 + PI_c->integral_part;
+	int32_t target = (sum >= 0) ? (sum >> 16) : -((-sum) >> 16);   //troncature vers zero, comme la conversion flottant -> entier
 
+	//avoid too big steps in one loop run
+	if (target > PI_c->out + PI_c->max_step) PI_c->out += PI_c->max_step;
+	else if (target < PI_c->out - PI_c->max_step) PI_c->out -= PI_c->max_step;
+	else PI_c->out = target;
 
-  if (PI_c->out>PI_c->limit_output) PI_c->out = PI_c->limit_output;
-  if (PI_c->out<-(PI_c->limit_output)) PI_c->out = -(PI_c->limit_output); // allow no negative voltage.
- // if(!(TIMER_CCHP(TIMER0)&(uint32_t)TIMER_CCHP_POEN))PI_c->integral_part = 0  ; //reset output if PWM is disabled
+	if (PI_c->out > PI_c->limit_output) PI_c->out = PI_c->limit_output;
+	if (PI_c->out < -(PI_c->limit_output)) PI_c->out = -(PI_c->limit_output); // allow no negative voltage.
 
-  return (PI_c->out);
+	return (PI_c->out);
 }
 
 

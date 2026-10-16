@@ -52,13 +52,13 @@ void runPIcontrol(void);
 void write_virtual_eeprom(void);
 void read_virtual_eeprom(void);
 void autodetect(void);
-extern uint16_t slow_loop_counter;
+extern volatile uint16_t slow_loop_counter;
 extern uint16_t switchtime[3];
 extern uint32_t timeout;
 extern uint8_t transmit_mailbox;
 extern can_trasnmit_message_struct transmit_message;
 extern can_receive_message_struct receive_message;
-extern FlagStatus receive_flag;
+extern volatile FlagStatus receive_flag;
 extern int32_t Z_position;
 extern int32_t PWM_offset;
 
@@ -156,13 +156,14 @@ typedef struct
 
 typedef struct
 {
-	float       	gain_p;
-	float       	gain_i;
+	/* REVUE-PUISSANCE P4 : gains et integrale en entiers Q16 (voir foc_int.h) : plus aucun flottant dans le PI */
+	int32_t       	gain_p;      /* Q16 : Q16(P_FACTOR_I_Q) */
+	int32_t       	gain_i;      /* Q16 */
 	int16_t       	limit_i;
 	int16_t       	limit_output;
 	int16_t       	recent_value;
 	int32_t       	setpoint;
-	float       	integral_part;
+	int32_t       	integral_part; /* Q16 */
 	int16_t       	max_step;
 	int32_t       	out;
 	int8_t       	shift;

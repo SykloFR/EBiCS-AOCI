@@ -35,6 +35,7 @@ OF SUCH DAMAGE.
 #include "gd32f30x_it.h"
 #include "main.h"
 #include "systick.h"
+#include "safety.h"
 
 /*!
     \brief      this function handles NMI exception
@@ -44,6 +45,8 @@ OF SUCH DAMAGE.
 */
 void NMI_Handler(void)
 {
+    safety_pwm_off();   /* REVUE-PUISSANCE P3 */
+    NVIC_SystemReset();
 }
 
 /*!
@@ -54,9 +57,10 @@ void NMI_Handler(void)
 */
 void HardFault_Handler(void)
 {
-    /* if Hard Fault exception occurs, go to infinite loop */
-    while (1){
-    }
+    /* REVUE-PUISSANCE P3 : couper la puissance AVANT tout, puis reset (comme l'origine AOCI : MOE coupe puis reset).
+       L'ancienne boucle infinie laissait le timer PWM tourner avec les derniers rapports cycliques. */
+    safety_pwm_off();
+    NVIC_SystemReset();
 }
 
 /*!
@@ -67,9 +71,10 @@ void HardFault_Handler(void)
 */
 void MemManage_Handler(void)
 {
-    /* if Memory Manage exception occurs, go to infinite loop */
-    while (1){
-    }
+    /* REVUE-PUISSANCE P3 : couper la puissance AVANT tout, puis reset (comme l'origine AOCI : MOE coupe puis reset).
+       L'ancienne boucle infinie laissait le timer PWM tourner avec les derniers rapports cycliques. */
+    safety_pwm_off();
+    NVIC_SystemReset();
 }
 
 /*!
@@ -80,9 +85,10 @@ void MemManage_Handler(void)
 */
 void BusFault_Handler(void)
 {
-    /* if Bus Fault exception occurs, go to infinite loop */
-    while (1){
-    }
+    /* REVUE-PUISSANCE P3 : couper la puissance AVANT tout, puis reset (comme l'origine AOCI : MOE coupe puis reset).
+       L'ancienne boucle infinie laissait le timer PWM tourner avec les derniers rapports cycliques. */
+    safety_pwm_off();
+    NVIC_SystemReset();
 }
 
 /*!
@@ -93,9 +99,10 @@ void BusFault_Handler(void)
 */
 void UsageFault_Handler(void)
 {
-    /* if Usage Fault exception occurs, go to infinite loop */
-    while (1){
-    }
+    /* REVUE-PUISSANCE P3 : couper la puissance AVANT tout, puis reset (comme l'origine AOCI : MOE coupe puis reset).
+       L'ancienne boucle infinie laissait le timer PWM tourner avec les derniers rapports cycliques. */
+    safety_pwm_off();
+    NVIC_SystemReset();
 }
 
 /*!

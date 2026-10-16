@@ -1,0 +1,576 @@
+diff --git a/src/FOC.c b/revue-puissance/proposed/src/FOC.c
+index c87ff6b..3341fcb 100644
+--- a/src/FOC.c
++++ b/revue-puissance/proposed/src/FOC.c
+@@ -102,13 +102,9 @@ void FOC_calculation(int16_t int16_i_as, int16_t int16_i_bs, q31_t q31_teta, int
+ 	MS_FOC->i_d=q31_i_d_fil>>3;
+ 
+ 
+-	if(MS_FOC->i_d>(PH_CURRENT_MAX<<2)){
+-		timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_0,_T>>1);
+-		timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_1,_T>>1);
+-		timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_2,_T>>1);
+-		timer_primary_output_config(TIMER0,DISABLE)	;	//disable PWM if overcurrent detected
+-		while(1){}						//stay here until hard reset
+-	}
++	/* REVUE-PUISSANCE P2 : l'ancienne coupure (i_d filtre > PH_CURRENT_MAX<<2 = 2800 points, puis while(1) dans l'interruption)
++	   ne pouvait jamais se declencher : 2800 depasse la pleine echelle de l'ADC (+-2048 points), et elle ne regardait que
++	   l'axe d filtre. Remplacee par safety_check_phase_currents() appelee sur les mesures brutes dans ADC0_1_IRQHandler. */
+ 
+ 
+ 
+@@ -158,30 +154,37 @@ void FOC_calculation(int16_t int16_i_as, int16_t int16_i_bs, q31_t q31_teta, int
+ 
+ }
+ //PI Control for quadrature current iq (torque)
++//REVUE-PUISSANCE P4 : version entiere (Q16) du PI d'EBiCS, meme comportement a +-2 points pres (tools/bench/host_test_foc_int.c),
++//cout mesure sur la carte : 479 cycles au pire contre 2901 en flottant emule (tools/bench/t5_ram_cost.py).
+ q31_t PI_control (PI_control_t* PI_c)
+ {
+-	float Delta = (PI_c->setpoint - PI_c->recent_value);
+-    float p_part; //proportional part
+-    p_part= Delta*PI_c->gain_p;
+-    temp5=p_part;
+-    PI_c->integral_part += Delta*PI_c->gain_i;
++	/* delta sature pour qu'aucun produit ne depasse 2^30 */
++	int32_t gmax = (PI_c->gain_p > PI_c->gain_i) ? PI_c->gain_p : PI_c->gain_i;
++	int32_t dmax = (gmax > 0) ? (0x3FFFFFFF / gmax) : 0x3FFFFFFF;
++	int32_t delta = PI_c->setpoint - PI_c->recent_value;
++	if (delta > dmax) delta = dmax;
++	if (delta < -dmax) delta = -dmax;
+ 
++	int32_t p_q16 = delta * PI_c->gain_p;
++	int32_t lim_q16 = ((int32_t)PI_c->limit_i) << 16;
++	temp5 = p_q16 >> 16;
++	PI_c->integral_part += delta * PI_c->gain_i;
+ 
+-  if (PI_c->integral_part > PI_c->limit_i) PI_c->integral_part = PI_c->limit_i;
+-  if (PI_c->integral_part < -(PI_c->limit_i)) PI_c->integral_part = -(PI_c->limit_i);
+-//  if(!(TIMER_CCHP(TIMER0)&(uint32_t)TIMER_CCHP_POEN))PI_c->integral_part = 0 ; //reset integral part if PWM is disabled
++	if (PI_c->integral_part > lim_q16) PI_c->integral_part = lim_q16;
++	if (PI_c->integral_part < -lim_q16) PI_c->integral_part = -lim_q16;
+ 
+-    //avoid too big steps in one loop run
+-  if (p_part+PI_c->integral_part > PI_c->out+PI_c->max_step) PI_c->out+=PI_c->max_step;
+-  else if  (p_part+PI_c->integral_part < PI_c->out-PI_c->max_step)PI_c->out-=PI_c->max_step;
+-  else PI_c->out=(p_part+PI_c->integral_part);
++	int32_t sum = p_q16 + PI_c->integral_part;
++	int32_t target = (sum >= 0) ? (sum >> 16) : -((-sum) >> 16);   //troncature vers zero, comme la conversion flottant -> entier
+ 
++	//avoid too big steps in one loop run
++	if (target > PI_c->out + PI_c->max_step) PI_c->out += PI_c->max_step;
++	else if (target < PI_c->out - PI_c->max_step) PI_c->out -= PI_c->max_step;
++	else PI_c->out = target;
+ 
+-  if (PI_c->out>PI_c->limit_output) PI_c->out = PI_c->limit_output;
+-  if (PI_c->out<-(PI_c->limit_output)) PI_c->out = -(PI_c->limit_output); // allow no negative voltage.
+- // if(!(TIMER_CCHP(TIMER0)&(uint32_t)TIMER_CCHP_POEN))PI_c->integral_part = 0  ; //reset output if PWM is disabled
++	if (PI_c->out > PI_c->limit_output) PI_c->out = PI_c->limit_output;
++	if (PI_c->out < -(PI_c->limit_output)) PI_c->out = -(PI_c->limit_output); // allow no negative voltage.
+ 
+-  return (PI_c->out);
++	return (PI_c->out);
+ }
+ 
+ 
+diff --git a/revue-puissance/proposed/src/foc_int.c b/revue-puissance/proposed/src/foc_int.c
+new file mode 100644
+index 0000000..2ed588a
+--- /dev/null
++++ b/revue-puissance/proposed/src/foc_int.c
+@@ -0,0 +1,75 @@
++/*
++ * foc_int.c : PI et racine carree en entiers (voir foc_int.h).
++ *
++ * Equivalent du PI_control() d'EBiCS (src/FOC.c) :
++ *     delta = consigne - mesure
++ *     p = delta * Kp ; integrale += delta * Ki, bornee a +-limit_i
++ *     cible = p + integrale ; sortie limitee en pente (max_step) puis bornee a +-limit_out
++ * Differences voulues :
++ *   - tout en entiers (Q16) ;
++ *   - delta sature pour que gain * delta ne depasse jamais 2^31 (pas de debordement silencieux).
++ */
++#include "foc_int.h"
++
++#define PI_Q 16
++
++/* troncature vers zero comme la conversion flottant -> entier du C */
++static inline int32_t q16_trunc(int32_t v)
++{
++    return (v >= 0) ? (v >> PI_Q) : -((-v) >> PI_Q);
++}
++
++void PI_int_init(PI_int_t *pi, int32_t gain_p_q16, int32_t gain_i_q16, int32_t limit_i, int32_t limit_out, int32_t max_step)
++{
++    pi->gain_p = gain_p_q16;
++    pi->gain_i = gain_i_q16;
++    pi->integral = 0;
++    pi->limit_i = limit_i;
++    pi->limit_out = limit_out;
++    pi->max_step = max_step;
++    pi->out = 0;
++}
++
++int32_t PI_int_control(PI_int_t *pi, int32_t setpoint, int32_t recent_value)
++{
++    /* delta sature : |delta| * max(Kp, Ki) < 2^30, donc p + integrale reste < 2^31 */
++    int32_t gmax = (pi->gain_p > pi->gain_i) ? pi->gain_p : pi->gain_i;
++    int32_t dmax = (gmax > 0) ? (0x3FFFFFFF / gmax) : 0x3FFFFFFF;
++    int32_t delta = setpoint - recent_value;
++    if (delta > dmax) delta = dmax;
++    if (delta < -dmax) delta = -dmax;
++
++    int32_t p_q16 = delta * pi->gain_p;
++    int32_t lim_q16 = pi->limit_i << PI_Q;
++    pi->integral += delta * pi->gain_i;
++    if (pi->integral > lim_q16) pi->integral = lim_q16;
++    if (pi->integral < -lim_q16) pi->integral = -lim_q16;
++
++    int32_t target = q16_trunc(p_q16 + pi->integral);
++
++    if (target > pi->out + pi->max_step) pi->out += pi->max_step;
++    else if (target < pi->out - pi->max_step) pi->out -= pi->max_step;
++    else pi->out = target;
++
++    if (pi->out > pi->limit_out) pi->out = pi->limit_out;
++    if (pi->out < -pi->limit_out) pi->out = -pi->limit_out;
++    return pi->out;
++}
++
++/* racine carree entiere (arrondie vers le bas), methode bit a bit, au plus 16 iterations, sans division */
++uint32_t isqrt_u32(uint32_t x)
++{
++    uint32_t res = 0;
++    uint32_t bit = 1UL << 30;
++    while (bit > x) bit >>= 2;
++    while (bit) {
++        if (x >= res + bit) {
++            x -= res + bit;
++            res = (res >> 1) + bit;
++        } else {
++            res >>= 1;
++        }
++        bit >>= 2;
++    }
++    return res;
++}
+diff --git a/src/gd32f30x_it.c b/revue-puissance/proposed/src/gd32f30x_it.c
+index 541fd9e..5384db8 100644
+--- a/src/gd32f30x_it.c
++++ b/revue-puissance/proposed/src/gd32f30x_it.c
+@@ -35,6 +35,7 @@ OF SUCH DAMAGE.
+ #include "gd32f30x_it.h"
+ #include "main.h"
+ #include "systick.h"
++#include "safety.h"
+ 
+ /*!
+     \brief      this function handles NMI exception
+@@ -44,6 +45,8 @@ OF SUCH DAMAGE.
+ */
+ void NMI_Handler(void)
+ {
++    safety_pwm_off();   /* REVUE-PUISSANCE P3 */
++    NVIC_SystemReset();
+ }
+ 
+ /*!
+@@ -54,9 +57,10 @@ void NMI_Handler(void)
+ */
+ void HardFault_Handler(void)
+ {
+-    /* if Hard Fault exception occurs, go to infinite loop */
+-    while (1){
+-    }
++    /* REVUE-PUISSANCE P3 : couper la puissance AVANT tout, puis reset (comme l'origine AOCI : MOE coupe puis reset).
++       L'ancienne boucle infinie laissait le timer PWM tourner avec les derniers rapports cycliques. */
++    safety_pwm_off();
++    NVIC_SystemReset();
+ }
+ 
+ /*!
+@@ -67,9 +71,10 @@ void HardFault_Handler(void)
+ */
+ void MemManage_Handler(void)
+ {
+-    /* if Memory Manage exception occurs, go to infinite loop */
+-    while (1){
+-    }
++    /* REVUE-PUISSANCE P3 : couper la puissance AVANT tout, puis reset (comme l'origine AOCI : MOE coupe puis reset).
++       L'ancienne boucle infinie laissait le timer PWM tourner avec les derniers rapports cycliques. */
++    safety_pwm_off();
++    NVIC_SystemReset();
+ }
+ 
+ /*!
+@@ -80,9 +85,10 @@ void MemManage_Handler(void)
+ */
+ void BusFault_Handler(void)
+ {
+-    /* if Bus Fault exception occurs, go to infinite loop */
+-    while (1){
+-    }
++    /* REVUE-PUISSANCE P3 : couper la puissance AVANT tout, puis reset (comme l'origine AOCI : MOE coupe puis reset).
++       L'ancienne boucle infinie laissait le timer PWM tourner avec les derniers rapports cycliques. */
++    safety_pwm_off();
++    NVIC_SystemReset();
+ }
+ 
+ /*!
+@@ -93,9 +99,10 @@ void BusFault_Handler(void)
+ */
+ void UsageFault_Handler(void)
+ {
+-    /* if Usage Fault exception occurs, go to infinite loop */
+-    while (1){
+-    }
++    /* REVUE-PUISSANCE P3 : couper la puissance AVANT tout, puis reset (comme l'origine AOCI : MOE coupe puis reset).
++       L'ancienne boucle infinie laissait le timer PWM tourner avec les derniers rapports cycliques. */
++    safety_pwm_off();
++    NVIC_SystemReset();
+ }
+ 
+ /*!
+diff --git a/src/main.c b/revue-puissance/proposed/src/main.c
+index 966b3e0..0cfbd53 100644
+--- a/src/main.c
++++ b/revue-puissance/proposed/src/main.c
+@@ -37,6 +37,8 @@ OF SUCH DAMAGE.
+ #include "CAN_Display.h"
+ #include "parser.h"
+ #include "aoci_board.h"
++#include "safety.h"
++#include "foc_int.h"
+ /* variables partagees avec les interruptions / le DMA : volatile obligatoire en -Os (EBiCS est compile en -O0,
+    sans quoi while(!reg_ADC_flag); devient une boucle infinie et tout le code apres est supprime) */
+ volatile uint16_t adc_value[9];
+@@ -232,6 +234,45 @@ void led_spark(void)
+     }
+ }
+ 
++/* REVUE-PUISSANCE P6 : attente bornee du drapeau pose par TIMER1 (4 kHz). Une periode dure 250 us ; 20 ms sans drapeau = declenchement absent. */
++static uint8_t wait_reg_adc_flag(void)
++{
++    uint32_t guard = SystemCoreClock / 50U;   /* ~20 ms en nombre de tours de boucle (> 20 ms car un tour dure plus d'un cycle) */
++    while(!reg_ADC_flag && --guard){ }
++    return guard ? 1U : 0U;
++}
++
++/* REVUE-PUISSANCE P8 : offset du courant batterie, mesure au demarrage (constante M820 CAL_BAT_I_OFFSET = 2035 ;
++   releve sur la carte AOCI alimentee par la sonde seule : PA0 = 1951, valeur valide de l'origine : 1600..2300) */
++int32_t bat_current_offset = CAL_BAT_I_OFFSET;
++
++/* REVUE-PUISSANCE P8 : calibration des offsets de courant, moteur a l'arret et PWM coupee.
++   Moyenne de 256 echantillons de la conversion reguliere (DMA, 4 kHz) de chaque voie ; plage valide comme l'origine AOCI
++   (phases : 2048 +- 128 points ; batterie : 1600..2300). Hors plage -> faux, defaut FAULT_OFFSET (code 10 de l'origine).
++   Les offsets injectes (registres JOFR) remplacent les constantes M820 2012 / 2028 / 2020 (a verifier : moyenne mesuree
++   sur la carte AOCI sans puissance : PA5 2045, PA3 2050, PA2 2045). */
++static uint8_t calibrate_current_offsets(void)
++{
++    uint32_t s_bat = 0, s_ph3 = 0, s_ph2 = 0, s_ph1 = 0;
++    for (int i = 0; i < 256; i++) {
++        s_bat += adc_value[0];   /* PA0 courant batterie */
++        s_ph3 += adc_value[4];   /* PA5 phase 3 */
++        s_ph2 += adc_value[8];   /* PA3 phase 2 */
++        s_ph1 += adc_value[7];   /* PA2 phase 1 */
++        reg_ADC_flag = 0;
++        if(!wait_reg_adc_flag()) return 0;
++        fwdgt_counter_reload();
++    }
++    int32_t o_bat = (int32_t)(s_bat >> 8), o_ph3 = (int32_t)(s_ph3 >> 8), o_ph2 = (int32_t)(s_ph2 >> 8), o_ph1 = (int32_t)(s_ph1 >> 8);
++    if (o_bat < 1600 || o_bat > 2300) return 0;
++    if (abs(o_ph3 - 2048) > 128 || abs(o_ph2 - 2048) > 128 || abs(o_ph1 - 2048) > 128) return 0;
++    bat_current_offset = o_bat;
++    adc_inserted_channel_offset_config(ADC0, ADC_INSERTED_CHANNEL_0, (uint16_t)o_ph3);
++    adc_inserted_channel_offset_config(ADC1, ADC_INSERTED_CHANNEL_0, (uint16_t)o_ph2);
++    adc_inserted_channel_offset_config(ADC2, ADC_INSERTED_CHANNEL_0, (uint16_t)o_ph1);
++    return 1;
++}
++
+ /*!
+     \brief      main function
+     \param[in]  none
+@@ -255,7 +296,10 @@ int main(void)
+     __enable_irq();
+ 
+ 	//SCB->VTOR = 0x08004000;
+-	fwdgt_config(65000, FWDGT_PSC_DIV256);
++	/* REVUE-PUISSANCE P5 : chien de garde ~200 ms (/16 -> 2,5 kHz, 500 coups). L'ancien fwdgt_config(65000, DIV256) etait tronque
++	   a 12 bits (65000 -> 3560, ~23 s) et le chien n'etait de toute facon jamais demarre (pas de fwdgt_enable). Demarre plus bas,
++	   apres l'initialisation (les attentes du demarrage durent ~0,6 s). L'origine AOCI : /16, 4000 coups = 1,6 s. */
++	fwdgt_config(500, FWDGT_PSC_DIV16);
+ #ifdef __FIRMWARE_VERSION_DEFINE
+      uint32_t fw_ver = 0;
+ #endif
+@@ -336,17 +380,17 @@ int main(void)
+ 	MP.angle_correction=0;
+ 
+ 
+-	//init PI structs
+-	PI_id.gain_i=I_FACTOR_I_D;
+-	PI_id.gain_p=P_FACTOR_I_D;
++	//init PI structs (REVUE-PUISSANCE P4 : gains en Q16, calcules a la compilation)
++	PI_id.gain_i=Q16(I_FACTOR_I_D);
++	PI_id.gain_p=Q16(P_FACTOR_I_D);
+ 	PI_id.setpoint = 0;
+ 	PI_id.limit_output = _U_MAX;
+ 	PI_id.max_step=15;
+ 	PI_id.shift=11;
+ 	PI_id.limit_i=1800;
+ 
+-	PI_iq.gain_i=I_FACTOR_I_Q;
+-	PI_iq.gain_p=P_FACTOR_I_Q;
++	PI_iq.gain_i=Q16(I_FACTOR_I_Q);
++	PI_iq.gain_p=Q16(P_FACTOR_I_Q);
+ 	PI_iq.setpoint = 0;
+ 	PI_iq.limit_output = _U_MAX;
+ 	PI_iq.max_step=15;
+@@ -362,14 +406,16 @@ int main(void)
+     read_virtual_eeprom();
+     parse_MOparams(&MP);
+ 
++    /* REVUE-PUISSANCE P6 : attentes du demarrage bornees (avant : while(!reg_ADC_flag) sans fin si le declenchement ADC
++       ne part pas, avec la puissance dans un etat indetermine). En cas d'echec : defaut verrouille, sorties coupees. */
+     for (int i = 0; i < 2000; i++) {//let the ADC stabilize
+-    	while(!reg_ADC_flag);
++    	if(!wait_reg_adc_flag()){ safety_fault(FAULT_STARTUP_ADC); break; }
+     	reg_ADC_flag=0;
+     }
+ 
+     for (int i = 0; i < 64; i++) {// get torquesensor offset
+     	torque_offset_correction+=adc_value[2];
+-    	while(!reg_ADC_flag);
++    	if(!wait_reg_adc_flag()){ safety_fault(FAULT_STARTUP_ADC); break; }
+     	reg_ADC_flag=0;
+ 
+     }
+@@ -377,9 +423,16 @@ int main(void)
+     torque_offset_correction=740-((torque_offset_correction*3300)>>12);
+   //  while((adc_value[1])>3000);//safety for bricked throttle
+ 
++    /* REVUE-PUISSANCE P8 : offsets des capteurs de courant mesures a chaque demarrage, sorties coupees (voir calibrate_current_offsets) */
++    if(!safety_is_latched() && !calibrate_current_offsets()){
++    	safety_fault(FAULT_OFFSET);
++    }
++
+ 	helper=((float)1.0/((float)1.0+(float)MP.Cadence_exponent));
+     //autodetect();
+ 
++    fwdgt_enable(); /* REVUE-PUISSANCE P5 : le chien de garde demarre ici ; rechargement uniquement dans la boucle principale */
++
+     while (1){
+     	fwdgt_counter_reload();
+ 
+@@ -472,7 +525,8 @@ int main(void)
+             }//end slow loop
+ 
+             if(MS.i_q_setpoint){
+-            	if(!ui_8_PWM_ON_Flag){
++            	/* REVUE-PUISSANCE P2 : jamais de remise en route tant qu'un defaut est verrouille (remise sous tension requise) */
++            	if(!ui_8_PWM_ON_Flag && !safety_is_latched()){
+             		get_standstill_position();
+ 					timer_primary_output_config(TIMER0,ENABLE);
+ 					uint16_half_rotation_counter=0;
+@@ -729,18 +783,22 @@ void adc_config(void)
+     adc_regular_channel_config(ADC0, 7, ADC_CHANNEL_2, ADC_SAMPLETIME_239POINT5);// Phase1 current
+     adc_regular_channel_config(ADC0, 8, ADC_CHANNEL_3, ADC_SAMPLETIME_239POINT5);// Phase2 current
+ 
+-    adc_inserted_channel_config(ADC0, 0, ADC_CHANNEL_5, ADC_SAMPLETIME_55POINT5);
+-    adc_inserted_channel_offset_config(ADC0, ADC_INSERTED_CHANNEL_0, 2012); //hardcoded, to be improved
++    /* REVUE-PUISSANCE P1 : conversions injectees (courants de phase) a 7,5 cycles comme le firmware AOCI d'origine
++       (SMPR relevees par SWD : ADC1 PA3 = 7,5 ; ADC2 PA2 et PA5 = 7,5), soit (7,5 + 12,5) / 11 MHz = 1,8 us = 120 ticks.
++       EBiCS : 55,5 cycles = 6,2 us = 409 ticks, plus long que la fenetre basse disponible a 16,5 kHz (voir PROPOSITIONS.md P1).
++       Les offsets ci-dessous sont des valeurs de depart : calibrate_current_offsets() les remplace au demarrage. */
++    adc_inserted_channel_config(ADC0, 0, ADC_CHANNEL_5, ADC_SAMPLETIME_7POINT5);
++    adc_inserted_channel_offset_config(ADC0, ADC_INSERTED_CHANNEL_0, 2045);
+ 
+-    adc_inserted_channel_config(ADC1, 0, ADC_CHANNEL_3, ADC_SAMPLETIME_55POINT5);
++    adc_inserted_channel_config(ADC1, 0, ADC_CHANNEL_3, ADC_SAMPLETIME_7POINT5);
+ //    adc_inserted_channel_config(ADC1, 1, ADC_CHANNEL_5, ADC_SAMPLETIME_55POINT5);
+ 
+-    adc_inserted_channel_offset_config(ADC1, ADC_INSERTED_CHANNEL_0, 2028); //hardcoded, to be improved
++    adc_inserted_channel_offset_config(ADC1, ADC_INSERTED_CHANNEL_0, 2050);
+ //    adc_inserted_channel_offset_config(ADC1, ADC_INSERTED_CHANNEL_1, 2033); //hardcoded, to be improved
+ 
+ 
+-    adc_inserted_channel_config(ADC2, 0, ADC_CHANNEL_2, ADC_SAMPLETIME_55POINT5);
+-    adc_inserted_channel_offset_config(ADC2, ADC_INSERTED_CHANNEL_0, 2020); //hardcoded, to be improved
++    adc_inserted_channel_config(ADC2, 0, ADC_CHANNEL_2, ADC_SAMPLETIME_7POINT5);
++    adc_inserted_channel_offset_config(ADC2, ADC_INSERTED_CHANNEL_0, 2045);
+ 
+ 
+     /* ADC trigger config */
+@@ -843,9 +901,12 @@ void timer0_config(void)
+ 	    timer_channel_output_shadow_config(TIMER0,TIMER_CH_3,TIMER_OC_SHADOW_DISABLE);
+ 	    timer_automatic_output_disable(TIMER0);
+ 	    /* automatic output enable, break, dead time and lock configuration*/
+-	    timer_breakpara.runoffstate      = TIMER_ROS_STATE_DISABLE;
+-	    timer_breakpara.ideloffstate     = TIMER_IOS_STATE_DISABLE ;
+-	    timer_breakpara.deadtime         = 32;
++	    /* REVUE-PUISSANCE P1/P10 : temps mort 25 (379 ns a 66 MHz) comme l'origine AOCI (BDTR relevee : DTG = 25) ; avant : 32 (calcule
++	       pour 120 MHz : 267 ns). Le driver EG2123A ajoute 100 a 300 ns. OSSR/OSSI actives comme l'origine (BDTR = 0xC19) :
++	       sorties forcees au niveau de repos (haut = bas, bas = haut) quand MOE = 0, et non en haute impedance. */
++	    timer_breakpara.runoffstate      = TIMER_ROS_STATE_ENABLE;
++	    timer_breakpara.ideloffstate     = TIMER_IOS_STATE_ENABLE ;
++	    timer_breakpara.deadtime         = 25;
+ 	    timer_breakpara.breakpolarity    = TIMER_BREAK_POLARITY_HIGH;
+ 	    timer_breakpara.outputautostate  = TIMER_OUTAUTO_DISABLE;
+ 	    timer_breakpara.protectmode      = TIMER_CCHP_PROT_0;
+@@ -1025,7 +1086,7 @@ void UART4_init(void)
+ 
+ void TIMER1_IRQHandler(void) // regular ADC processing and common slow timing tasks
+ {
+-	fwdgt_counter_reload();
++	/* REVUE-PUISSANCE P5 : pas de fwdgt_counter_reload() ici */
+ 	if(SET == timer_interrupt_flag_get(TIMER1,TIMER_INT_FLAG_UP)){
+         /* clear channel 0 interrupt bit */
+         timer_interrupt_flag_clear(TIMER1,TIMER_INT_FLAG_UP);
+@@ -1041,7 +1102,7 @@ void TIMER1_IRQHandler(void) // regular ADC processing and common slow timing ta
+ 
+ void TIMER2_IRQHandler(void)
+ {
+-	fwdgt_counter_reload();
++	/* REVUE-PUISSANCE P5 : pas de fwdgt_counter_reload() ici */
+     if(SET == timer_interrupt_flag_get(TIMER2,TIMER_INT_FLAG_CH0)){
+         /* clear channel 0 interrupt bit */
+         timer_interrupt_flag_clear(TIMER2,TIMER_INT_FLAG_CH0);
+@@ -1235,7 +1296,7 @@ void Speed_processing(void)
+ void reg_ADC_processing(void)
+ {
+ 	battery_current_cumulated-=battery_current_cumulated>>6;
+-	battery_current_cumulated+= (adc_value[0]-CAL_BAT_I_OFFSET);
++	battery_current_cumulated+= (adc_value[0]-bat_current_offset);   /* REVUE-PUISSANCE P8 : offset mesure au demarrage */
+ 	MS.Battery_Current=(int32_t)((float)(battery_current_cumulated>>6)*CAL_BAT_I); //Battery current in mA
+ 	voltage_raw_cumulated-=voltage_raw_cumulated>>6;
+ 	voltage_raw_cumulated+=adc_value[3];
+@@ -1311,7 +1372,7 @@ void runPIcontrol(void){
+ 	//check, if Battery Current limit is exceeded
+ 	if(MS.Battery_Current>MP.battery_current_max) BC_limit_flag=1;
+ 	//check, if theoretical Battery current would be below limit with some hysteresis
+-	if((MS.i_q_setpoint*CAL_I*MS.u_abs)>>11<(MP.battery_current_max*0.9)) BC_limit_flag=0; //duty cycle is scaled to 2048 = 2^11
++	if((MS.i_q_setpoint*CAL_I*MS.u_abs)>>11<((int32_t)MP.battery_current_max*9/10)) BC_limit_flag=0; //duty cycle is scaled to 2048 = 2^11 ; REVUE-PUISSANCE P4 : *0.9 en entier (avant : produit en double emule dans l'interruption)
+ 
+ 	if(!BC_limit_flag){
+ 	//control iq
+@@ -1333,7 +1394,8 @@ void runPIcontrol(void){
+ 
+ 	  //circle limitation
+ 
+-	  MS.u_abs = (int32_t)sqrtf((float)(q31_u_d_temp*q31_u_d_temp+q31_u_q_temp*q31_u_q_temp));
++	  /* REVUE-PUISSANCE P4 : racine carree entiere (avant : sqrtf flottant emule, ~1 000 cycles dans l'interruption rapide) */
++	  MS.u_abs = (int32_t)isqrt_u32((uint32_t)(q31_u_d_temp*q31_u_d_temp+q31_u_q_temp*q31_u_q_temp));
+ //	  arm_sqrt_q31((q31_u_d_temp*q31_u_d_temp+q31_u_q_temp*q31_u_q_temp)<<1,&MS.u_abs);
+ //	  MS.u_abs = (MS.u_abs>>16)+1;
+ 
+@@ -1351,6 +1413,9 @@ void runPIcontrol(void){
+ }
+ 
+ void autodetect(void) {
++	/* REVUE-PUISSANCE P2 : l'apprentissage (rotation en boucle ouverte, ~5,4 s) ne demarre pas si un defaut est verrouille,
++	   et recharge le chien de garde a chaque pas (le chien de garde du portage est court : ~200 ms). */
++	if(safety_is_latched()) return;
+ 	timer_primary_output_config(TIMER0,ENABLE);
+ 	ui_8_PWM_ON_Flag=1;
+ 	MS.hall_angle_detect_flag = 0; //set uq to contstant value in FOC.c for open loop control
+@@ -1362,6 +1427,8 @@ void autodetect(void) {
+ 	for (int i = 0; i < 1080; i++) {
+ 		q31_rotorposition_absolute += one_deg; //drive motor in open loop with steps of 1 deg
+ 		delay_1ms(5);
++		fwdgt_counter_reload();
++		if(safety_is_latched()) break;   /* defaut pendant l'apprentissage : on arrete la rotation */
+ 
+ 
+ 		if (ui8_hall_state_old != ui8_hall_state) {
+@@ -1471,7 +1538,7 @@ void autodetect(void) {
+ void ADC0_1_IRQHandler(void)
+ {
+     /* clear the ADC flag */
+-	fwdgt_counter_reload();
++	/* REVUE-PUISSANCE P5 : plus de rechargement du chien de garde dans l'interruption (il masquait un blocage de la boucle principale) */
+     adc_interrupt_flag_clear(ADC1, ADC_INT_FLAG_EOIC);
+     /* read ADC inserted group data register */
+ 
+@@ -1480,6 +1547,9 @@ void ADC0_1_IRQHandler(void)
+     i16_ph2_current = adc_inserted_data_read(ADC1, ADC_INSERTED_CHANNEL_0);
+     i16_ph3_current = adc_inserted_data_read(ADC0, ADC_INSERTED_CHANNEL_0);
+ 
++    /* REVUE-PUISSANCE P2 : surintensite sur les mesures brutes, a chaque periode PWM, avant tout calcul */
++    safety_check_phase_currents(i16_ph1_current, i16_ph2_current, i16_ph3_current);
++
+ 
+ 	switch (MS.char_dyn_adc_state) //read in according to state
+ 		{
+@@ -1544,7 +1614,7 @@ void ADC0_1_IRQHandler(void)
+ 	dyn_adc_state(q31_rotorposition_absolute);
+ 
+     //q31_rotorposition_absolute=(int16_t)((180.0/75.0)*(float)(1<<31));
+-    if(ui_8_PWM_ON_Flag){
++    if(ui_8_PWM_ON_Flag && !safety_is_latched()){
+ 		FOC_calculation(i16_ph1_current, i16_ph2_current,
+ 					q31_rotorposition_absolute,
+ 					(((int16_t) MP.reverse * i8_reverse_flag)
+@@ -1920,7 +1990,16 @@ uint16_t update_setpoint(void){
+ 	            MS.i_q_setpoint_temp=map(voltage_raw_filtered, MP.voltage_min,(MP.voltage_min+176),0,MS.i_q_setpoint_temp);
+ 
+ 	            //motor temperature ramp down between 110 and 130°C
+-	            MS.i_q_setpoint_temp=map(MS.int_Temperature,110,130,MS.i_q_setpoint_temp,0);
++	            /* REVUE-PUISSANCE P9 : reduction progressive du courant de 85 a 100 degres C (100 % -> 33 %), comme le firmware AOCI
++	               d'origine sur la sonde du controleur (EBiCS : 110 a 130 degres, valeurs d'un moteur de moyeu Bafang).
++	               ATTENTION : EBiCS lit PB1 (adc_value[6]) ; sur AOCI PB1 est la sonde du CONTROLEUR, PB0 celle du moteur.
++	               Sonde absente ou hors plage (ADC > 4000 ou < 50) : pas d'assistance, comme le defaut 15 de l'origine. */
++	            MS.i_q_setpoint_temp=map(MS.int_Temperature,85,100,MS.i_q_setpoint_temp,MS.i_q_setpoint_temp/3);
++#if (TEMP_SENSOR_REQUIRED)
++	            if(adc_value[6]>4000||adc_value[6]<50){
++	            	MS.i_q_setpoint_temp=0;
++	            }
++#endif
+ 	            if(MP.legalflag&&!MS.offroadflag){
+ 
+ 					if((uint16_cadence_filtered>>3)>15){
+diff --git a/revue-puissance/proposed/src/safety.c b/revue-puissance/proposed/src/safety.c
+new file mode 100644
+index 0000000..c884229
+--- /dev/null
++++ b/revue-puissance/proposed/src/safety.c
+@@ -0,0 +1,41 @@
++/*
++ * safety.c : voir safety.h. PROPOSITION POUR REVUE, non flashee.
++ */
++#include "safety.h"
++#include "config.h"
++
++volatile uint8_t safety_fault_code_latched = FAULT_NONE;
++
++void safety_fault(uint8_t code)
++{
++    safety_pwm_off();                          /* d'abord couper, ensuite seulement memoriser */
++    if (safety_fault_code_latched == FAULT_NONE) {
++        safety_fault_code_latched = code;
++    }
++}
++
++/* Surintensite de phase : seuil unique PH_CURRENT_TRIP tenu PH_TRIP_PERIODS periodes de suite (comme le palier 3 de l'origine),
++   plus saturation de l'ampli de mesure (|i| >= 2000 points sur 2048 : coupure immediate). */
++#define PH_SATURATION_COUNTS 2000
++
++static inline int16_t abs16(int16_t v) { return (v < 0) ? (int16_t)-v : v; }
++
++void safety_check_phase_currents(int16_t i1, int16_t i2, int16_t i3)
++{
++    static uint8_t trip_count = 0;
++    int16_t a = abs16(i1), b = abs16(i2), c = abs16(i3);
++    int16_t m = (a > b) ? a : b;
++    if (c > m) m = c;
++
++    if (m >= PH_SATURATION_COUNTS) {
++        safety_fault(FAULT_OVERCURRENT);
++        return;
++    }
++    if (m >= PH_CURRENT_TRIP) {
++        if (++trip_count >= PH_TRIP_PERIODS) {
++            safety_fault(FAULT_OVERCURRENT);
++        }
++    } else {
++        trip_count = 0;
++    }
++}

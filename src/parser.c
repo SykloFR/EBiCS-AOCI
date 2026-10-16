@@ -132,8 +132,8 @@ void InitEEPROM(MotorParams_t* MP){
 	MP->system_voltage = SYSTEM_VOLTAGE;
 	MP->max_voltage = MAX_VOLTAGE;
 	MP->decay_base =255;
-	for (k=0; k < 6; k++){
-		for (l=0; l < 7; l++){
+	for (k=0; k < 5; k++){ // assist_profile[5][6] : l'ancienne borne (6 x 7) ecrivait hors du tableau
+		for (l=0; l < 6; l++){
 			MP->assist_profile[k][l]=(k+1)*20;
 		}
 	}
