@@ -51,7 +51,7 @@ Décision : **66 MHz** (quartz 12 MHz / 2 x 11), comme le firmware AOCI d'origin
 - `tools/make_aoci_image.py` + cible `mingw32-make CORE=m3 aoci` : complète l'image à 0xFF jusqu'à 0x0803AFBF, calcule le CRC32 STM32 et l'écrit à 0x0803AFC0, sort une image de 0x36000 octets (0x08005000-0x0803AFFF). Contrôle SP/reset. Le mode `--verify` a été validé sur `dump1.bin` (CRC 0x3CEBF07C = valeur stockée). L'image complète doit être écrite en entier : le CRC porte sur le remplissage 0xFF, l'ancienne appli (jusqu'à 0x0801BDFF) doit être effacée.
 - Makefile : portable Windows (création de dossiers et `clean` sans `rm`). Cible M4 d'origine toujours compilable.
 
-**Laissé volontairement (puissance, à relire par un développeur firmware)** : période MLI `_T` (3750 pour 16 kHz à 120 MHz ; **2000 pour 16,5 kHz à 66 MHz**, valeur de l'origine), temps mort (DTG 25 dans l'origine, ~379 ns), temps d'échantillonnage ADC injecté (55,5 cycles à 11 MHz = 6,2 µs, à réduire), `TRIGGER_OFFSET_ADC`, flottants dans l'interruption rapide, coupure surintensité, BKIN, HardFault. `rcu_adc_clock_config(RCU_CKADC_CKAPB2_DIV6)` donne 11 MHz à 66 MHz (< 14 MHz max) : inchangé.
+**Laissé volontairement (puissance, revue croisée Fangyan avant essai sous puissance)** : période MLI `_T` (3750 pour 16 kHz à 120 MHz ; **2000 pour 16,5 kHz à 66 MHz**, valeur de l'origine), temps mort (DTG 25 dans l'origine, ~379 ns), temps d'échantillonnage ADC injecté (55,5 cycles à 11 MHz = 6,2 µs, à réduire), `TRIGGER_OFFSET_ADC`, flottants dans l'interruption rapide, coupure surintensité, BKIN, HardFault. `rcu_adc_clock_config(RCU_CKADC_CKAPB2_DIV6)` donne 11 MHz à 66 MHz (< 14 MHz max) : inchangé.
 
 **Toujours interdit de flasher** ce binaire : `_T` et le reste de la partie puissance sont encore ceux du GD32F303 à 120 MHz.
 
@@ -78,7 +78,7 @@ Voir la liste en fin de section « Étape 4 ».
 4. **PB8** (impulsion au démarrage, précharge probable dans l'origine) non reproduite.
 5. Cadence 48 impulsions/tour (EBiCS : 24) et l'émission de la distance (octet 2 de 0x3200 vaut 0 ; l'afficheur AOCI attend 0,01 km sur 2 octets, cumul du trajet).
 6. Essai du firmware d'origine avec l'afficheur AOCI pour comparer les trames (CANable).
-7. Partie puissance (relue par un développeur firmware) : `_T` 2000, DTG, ADC injecté, flottants dans l'interruption rapide, coupure surintensité, BKIN, HardFault.
+7. Partie puissance (revue croisée Fangyan, avant essai sous puissance) : `_T` 2000, DTG, ADC injecté, flottants dans l'interruption rapide, coupure surintensité, BKIN, HardFault.
 8. ~~Test d'horloge en RAM~~ : fait à l'étape 5. Reste : premier flash (porte 3), après relecture de la partie puissance.
 
 ## Étape 5 : essais sur la carte, dossier de revue puissance (16/10/2026)
