@@ -16,6 +16,13 @@ Un seul agent ecrit dans un fichier donne a un instant donne. Avant de commencer
 
 ## Perimetre
 
+- **Strategie** : portage EBiCS + constantes AOCI. AOCI sert de reference et de temoin ; EBiCS est
+  la base source. Pas de patch binaire AOCI pour le produit.
+- **Validation minimale** : ne mesurer que ce qui peut detruire le materiel ou invalider la boucle
+  de courant. Le reste est reporte avec un risque ecrit. Timebox 2 h par tache, 1 jour par
+  preparation de porte. Pas de campagne de metrologie complete avant la porte 4.
+- **Banc** : alim de labo 60 V / 5 A, WCH-Link en SWD, pas d'analyseur ni de resistance. Run direct
+  en walk assist, 24 V / 0,5-1 A, build banc 3,8 A max et trip 5 A.
 - **Flash de la carte : seulement sur accord explicite** ; c'est reversible par SWD (voir porte 2).
 - **Partie puissance** (`_T`, temps mort, ADC injecte, surintensite, BKIN, HardFault, etalonnage
   courant) : a traiter comme du code normal, avec tests mesures. Ces taches se font et se mesurent
