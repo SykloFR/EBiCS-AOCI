@@ -8,8 +8,7 @@ paths:
 
 # Firmware AOCI : perimetre et revue
 
-- La commande moteur et les protections de l'etage de puissance sont du code normal. Aucune partie
-  n'est hors perimetre pour motif de puissance.
+- Le travail couvre la commande moteur et les protections, avec la methode par portes.
 - Methode par portes obligatoire : aucune puissance au depart, `MOE = 0`, alimentation limitee,
   preuve mesuree a chaque etape. Les valeurs non mesurees sont marquees provisoires.
 - Yanni developpe le portage en autonomie. Fangyan (ingenieure systemes embarques, equipe Syklo,

@@ -20,7 +20,6 @@ Un seul agent ecrit dans un fichier donne a un instant donne. Avant de commencer
 - **Partie puissance** (`_T`, temps mort, ADC injecte, surintensite, BKIN, HardFault, etalonnage
   courant) : a traiter comme du code normal, avec tests mesures. Ces taches se font et se mesurent
   comme les autres ; presenter les valeurs comme provisoires tant qu'elles ne sont pas mesurees.
-  Aucune partie du firmware n'est hors perimetre pour motif de puissance.
 - **Equipe** : Yanni developpe le portage en autonomie. **Fangyan** (ingenieure systemes embarques,
   freelance integree a l'equipe Syklo, bancs propres, a developpe les premieres versions des
   firmwares Syklo) assure la revue croisee et la validation au banc des points critiques, sans
