@@ -211,6 +211,7 @@ void processCAN_Rx(MotorParams_t* MP, MotorState_t* MS){
 
 		}
 
+#ifndef BENCH_BUILD  /* A1 porte 4 : en build de banc, ni apprentissage Hall (u_d fixe, consigne 100 points) ni retour usine */
 		if(Ext_ID_Rx.command==0x6200 && for_me && Ext_ID_Rx.source==CAN_NODE_BESST){ //Position sensor calibration (rotation moteur : outil PC uniquement)
 			autodetect();
 		}
@@ -220,13 +221,16 @@ void processCAN_Rx(MotorParams_t* MP, MotorState_t* MS){
 			parse_MOparams(MP);
 
 		}
+#endif
 
 
 
 	}
+#ifndef BENCH_BUILD  /* A1 porte 4 : pas de reset par le bus en build de banc (rouvrirait la fenetre du bootloader) */
 	if(Ext_ID_Rx.command==0x3005 && for_me && Ext_ID_Rx.source==CAN_NODE_BESST){ //reset logiciel : le bootloader AOCI reste actif ~0,5 s apres un reset logiciel (outil PC uniquement)
 		NVIC_SystemReset();
 	}
+#endif
 }
 void sendAcknoledge(void){
 	Ext_ID_Tx.command = Ext_ID_Rx.command;

@@ -116,6 +116,33 @@
 #define SYSTEM_VOLTAGE 36// in V (cible AOCI 36V 15A, pack 10S)
 #define MAX_VOLTAGE 42// in V (10S charge a 4,2 V/element)
 
+/* PORTE 4 (A1, revue Fangyan du 19/10/2026) : build de banc, mingw32-make CORE=m3 BENCH=1 CURRENT_SIGN=-1 aoci.
+   Alim de labo 24 V / 0,5-1 A, moteur a vide. Echelle 3,14 points/A (octet 0x0803D800 = 2 lu le 20/10/2026). */
+#ifdef BENCH_BUILD
+#undef PH_CURRENT_MAX
+#define PH_CURRENT_MAX 12        // ~3,8 A de phase
+#undef PH_CURRENT_TRIP
+#define PH_CURRENT_TRIP 16       // ~5 A de phase
+#undef BATTERYCURRENT_MAX
+#define BATTERYCURRENT_MAX 2000  // mA : seconde barriere derriere la limite de l'alim de labo
+#undef VOLTAGE_MIN
+#define VOLTAGE_MIN 1064         // 18,0 V x 59,1 points/V ; pleine consigne au-dessus de ~21 V (rampe de 176 points)
+#undef TEMP_SENSOR_REQUIRED
+#define TEMP_SENSOR_REQUIRED 1   // a passer a 0 seulement si la NTC PB1 est invalide en A4 (deviation ecrite)
+#define U_MAX_BENCH 1500L        // CCR max ~1738 : 252 ticks au sommet pour 180 necessaires (1640 ne laissait que 3 ticks de marge)
+#define BENCH_NO_EEPROM          // page 0x0803F000 ni lue ni ecrite : MP vient des macros ci-dessus (la page contient MP d'un ancien build)
+#define BENCH_OL_UD_MAX 60       // outil vecteur fixe : u_d plafonne a 60/2048 de Vbat (~0,7 V a 24 V)
+#ifndef CURRENT_SIGN
+#error "build banc : CURRENT_SIGN doit etre passe explicitement (CURRENT_SIGN=-1 ou 1), c'est une hypothese a verifier en A5/A6"
+#endif
+#endif
+
+/* Signe des courants de phase : EBiCS lit i = JDR - offset ; l'origine AOCI calcule I = offset - 2 x JDR.
+   Hypothese a verifier au banc (A5 vecteur fixe, A6 premier run) ; hors build banc, comportement EBiCS inchange. */
+#ifndef CURRENT_SIGN
+#define CURRENT_SIGN 1
+#endif
+
 //---------------------------------------------------------------------
 //torquesensor settings
 #define TS_COEF 4

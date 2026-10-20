@@ -1,7 +1,7 @@
 # Portage EBiCS M820 vers le contrôleur AOCI : journal
 
 Base : `EBiCS/BAFANG_GD32F303RCT6`, branche `M820`, commit 4e67266 (22/07/2026). Licence GPL-3 : sources à publier si le firmware est diffusé.
-Méthode et portes : `../aoci-firmware-re/methode-validation-avant-firmware.md`. Porte en cours : **3 (sans puissance)**.
+Méthode et portes : `../aoci-firmware-re/methode-validation-avant-firmware.md`. Porte en cours : **4 (basse puissance)**, A1 fait (étape 6).
 
 ## Étape 1 : compilation de référence (16/10/2026) ✅
 
@@ -100,3 +100,18 @@ Carte de banc n° 1 branchée au WCH-Link (alimentée par la sonde seule). **Auc
 **Dossier de revue puissance** : evue-puissance/ (README, 12 propositions justifiées, modèle de compte rendu, diffs, arbre complet proposed/ qui compile, à ne pas flasher). Constats principaux : protection de surintensité d'EBiCS inopérante (seuil 2800 points > pleine échelle 2048), chien de garde jamais démarré et mal réglé, handlers de faute sans coupure, constantes de temps calculées pour 120 MHz, échelle de courant AOCI environ 30 fois plus grossière que celle supposée par EBiCS, apprentissage des Hall en tension fixe sans limite de courant.
 
 **Toujours interdit de flasher** ni le code principal ni la proposition.
+
+## Étape 6 : porte 4, A1, build de banc et correctifs (20/10/2026) : fait, non flashé
+
+Branche `porte4-a1-banc`, revue Fangyan du 19/10/2026. Build : `mingw32-make OS= CORE=m3 BENCH=1 CURRENT_SIGN=-1 aoci` (depuis Git Bash, `OS=` évite la branche `cmd` du Makefile) → `build-m3-banc/ebics_BANC_aoci_full.bin`, 34 024 octets, CRC32 `0xF21C435B`. Preuves : `python -I tools/bench/a1_preuves.py build-m3-banc` et `sh tools/bench/host_test_svpwm.sh`, copies dans `../aoci-firmware-re/validation/porte-4/`.
+
+- **Dump du 20/10** (`validation/porte-4/`) : octet 0x0803D800 = 2 (R 1,5, 3,14 points/A) ; la page 0x0803F000 contient MP d'un ancien build (Magic 202, 60, 1773, `gear_ratio` 80) : elle l'emporte sur `config.h` au démarrage.
+- **Build de banc** (`BENCH=1`, bloc `BENCH_BUILD` de `config.h`) : `PH_CURRENT_MAX` 12, `PH_CURRENT_TRIP` 16, `BATTERYCURRENT_MAX` 2000 mA, `VOLTAGE_MIN` 1064 (18 V), `TEMP_SENSOR_REQUIRED` 1, `_U_MAX` 1500, `CURRENT_SIGN` obligatoire sur la ligne de commande.
+- **`BENCH_NO_EEPROM`** : page 0x0803F000 ni lue ni écrite (`write_virtual_eeprom` réduit à `bx lr`, lecture et effacement absents du binaire).
+- **MOE** : `pwm_enable_safe()` remet PI, tensions et CCR à zéro puis teste le verrou et pose POEN interruptions masquées ; `pwm_disable()` coupe MOE avant de baisser le drapeau ; garde dans l'ISR : défaut verrouillé = MOE recoupé à chaque période.
+- **Trip** : contrôlé après reconstruction, sur (ph1, ph2, −(ph1+ph2)) ; ph3 brute pouvait être fausse dans l'état 1.
+- **`Default_Handler`** : POEN = 0 puis reset AIRCR (toutes cibles M3). `TIMER4_IRQn` n'est plus activée. Scan : aucune IRQ activée sans handler.
+- **Banc seulement** : défaut 21 verrouillé après un reset logiciel ou chien de garde (remise sous tension obligatoire) ; 0x6200, 0x6101 et 0x3005 refusés ; outil « vecteur fixe » piloté par SWD (`bench_ol_*`, u_d ≤ 60/2048, arrêt seul sans rafraîchissement en 2 s).
+- **Test hôte `svpwm()`** (texte extrait de `src/FOC.c`, 36 000 angles) : `_U_MAX` 1500 → CCR max 1739, marge 71 sous le seuil 1810, fenêtre 251 ticks pour 180 ; 1640 ne laissait que 2 ticks.
+- Non-régression : cible M3 production et cible M4 d'origine compilent, mêmes avertissements que la référence.
+- Reste noté : l'ordre des bits Hall diffère de l'origine (EBiCS : PC6 = bit 0, PC7 = bit 1, PC8 = bit 2 ; origine : PC6<<2 | PC7 | PC8<<1), à prendre en compte en A5.

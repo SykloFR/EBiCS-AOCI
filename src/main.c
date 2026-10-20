@@ -67,6 +67,19 @@ volatile FlagStatus reg_ADC_flag=0;
 volatile FlagStatus OnOffButton_flag=0;
 volatile FlagStatus BC_limit_flag=0;
 uint8_t Backwards_counter=0;
+uint32_t boot_reset_flags=0;     /* RCU_RSTSCK lu au demarrage (cause du reset), puis efface */
+static uint8_t pwm_enable_safe(void);
+static void pwm_disable(void);
+#ifdef BENCH_BUILD
+/* Outil de banc « vecteur fixe » (porte 4, A5) : pilote par SWD, jamais par le CAN.
+   bench_ol_enable = 1 et bench_ol_keepalive > 0 (ticks de 4 kHz, a rafraichir) : tension u_d fixe a l'angle bench_ol_angle,
+   sans PI, avec le trip de phase actif. u_d plafonne a BENCH_OL_UD_MAX. Arret seul si keepalive tombe a 0. */
+volatile uint8_t  bench_ol_enable=0;
+volatile int16_t  bench_ol_ud=0;
+volatile q31_t    bench_ol_angle=0;
+volatile uint16_t bench_ol_keepalive=0;
+volatile uint8_t  bench_ol_active=0;
+#endif
 
 void nvic_config(void);
 void led_config(void);
@@ -310,6 +323,11 @@ int main(void)
        un second appel (present dans EBiCS) repasserait inutilement l'horloge sur le HSI 8 MHz. */
     /* system clocks configuration */
 
+    /* A1 porte 4 : cause du reset lue avant toute initialisation (le bootloader AOCI lit RCU_RSTSCK sans l'effacer), puis effacee
+       pour que le prochain demarrage ne voie que sa propre cause */
+    boot_reset_flags = RCU_RSTSCK;
+    RCU_RSTSCK |= RCU_RSTSCK_RSTFC;
+
     rcu_config();
     /* configure systick */
     systick_config();
@@ -322,6 +340,13 @@ int main(void)
     gpio_config();
     /* TIMER configuration */
     timer0_config(); // PWM for Mosfet driver
+#ifdef BENCH_BUILD
+    /* A1 porte 4 (revue Fangyan, point 7) : apres un reset logiciel (Default_Handler, HardFault, 0x3005, reset SWD) ou chien de
+       garde, le verrou en RAM est perdu. Pas de redemarrage automatique : defaut verrouille, remise sous tension obligatoire. */
+    if(boot_reset_flags & (RCU_RSTSCK_SWRSTF | RCU_RSTSCK_FWDGTRSTF | RCU_RSTSCK_WWDGTRSTF)){
+    	safety_fault(FAULT_CPU_EXCEPTION);
+    }
+#endif
     timer2_config(); //for hall sensor handling
 
     /* DMA configuration */
@@ -399,12 +424,18 @@ int main(void)
 	PI_iq.limit_i=_U_MAX;
 
     //Check, if virtual EEPROM was ever written (or interrupted mid-program). If not, fill it with default values
+#ifdef BENCH_NO_EEPROM
+    /* A1 porte 4 : la page 0x0803F000 n'est ni lue ni ecrite (dump du 20/10/2026 : MP d'un ancien build, gear_ratio 80).
+       InitEEPROM remplit MP avec les macros de config.h ; son ecriture finale est neutralisee dans write_virtual_eeprom(). */
+    InitEEPROM(&MP);
+#else
     ptrd = (uint32_t *)FMC_WRITE_START_ADDR;
     if(0xFFFFFFFF == (*(ptrd+1)) || MP.MagicNumber != ((const MotorParams_t *)(FMC_WRITE_START_ADDR + FMC_OFFSET_MP))->MagicNumber){
     	InitEEPROM(&MP);
     }
     //read parameters from virtual EEPROM and overwrite the default values
     read_virtual_eeprom();
+#endif
     parse_MOparams(&MP);
 
     /* REVUE-PUISSANCE P6 : attentes du demarrage bornees (avant : while(!reg_ADC_flag) sans fin si le declenchement ADC
@@ -526,14 +557,32 @@ int main(void)
 
             }//end slow loop
 
+#ifdef BENCH_BUILD
+            /* Outil vecteur fixe (A5) : seulement sans demande d'assistance et sans defaut ; s'arrete seul sans rafraichissement SWD */
+            if(bench_ol_enable && bench_ol_keepalive && !MS.i_q_setpoint && !safety_is_latched()){
+            	if(!bench_ol_active){
+            		bench_ol_active=1;
+            		if(!ui_8_PWM_ON_Flag && pwm_enable_safe()){
+            			uint16_half_rotation_counter=0;
+            			ui_8_PWM_ON_Flag=1;
+            		}
+            	}
+            } else if(bench_ol_active){
+            	pwm_disable();
+            	bench_ol_enable=0;
+            	bench_ol_active=0;
+            }
+            if(!bench_ol_active){
+#endif
             if(MS.i_q_setpoint){
             	/* REVUE-PUISSANCE P2 : jamais de remise en route tant qu'un defaut est verrouille (remise sous tension requise).
             	   Si le moteur est immobile (uint16_half_rotation_counter > 4000), on ne reactive pas MOE tant que la demande
             	   n'est pas repassée par zero ou qu'un front Hall n'a pas remis uint16_half_rotation_counter a 0. */
             	if(!ui_8_PWM_ON_Flag && !safety_is_latched() && uint16_half_rotation_counter <= 4000){
             		get_standstill_position();
-            		if(!safety_is_latched()){
-						timer_primary_output_config(TIMER0,ENABLE);
+            		/* A1 porte 4 (revue Fangyan, point 4) : PI et rapports cycliques remis a zero, puis test du verrou et MOE = 1
+            		   sans fenetre (interruptions masquees), voir pwm_enable_safe() */
+            		if(pwm_enable_safe()){
 						uint16_half_rotation_counter=0;
 						ui_8_PWM_ON_Flag=1;
             		}
@@ -543,17 +592,13 @@ int main(void)
             }
             if(uint16_half_rotation_counter>4000) {
             	if(ui_8_PWM_ON_Flag){
-					timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_0,_T>>1);
-					timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_1,_T>>1);
-					timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_2,_T>>1);
-					timer_primary_output_config(TIMER0,DISABLE); //Disable PWM if motor is not turning
-					ui_8_PWM_ON_Flag=0;
+					pwm_disable(); //Disable PWM if motor is not turning
 					i8_recent_rotor_direction=0;
-					PI_iq.integral_part=0;
-					PI_id.integral_part=0;
-
             	}
             }//end half rotation counter
+#ifdef BENCH_BUILD
+            }
+#endif
 
 
     }
@@ -1077,7 +1122,7 @@ void nvic_config(void)
     nvic_irq_enable(TIMER1_IRQn, 0, 0);
     nvic_irq_enable(TIMER2_IRQn, 0, 0);
     nvic_irq_enable(ADC0_1_IRQn, 0, 0);
-    nvic_irq_enable(TIMER4_IRQn, 0, 0);
+    /* A1 porte 4 : TIMER4_IRQn n'est plus activee (aucun handler : elle tombait dans Default_Handler ; TIMER4 n'est pas utilise) */
 
 }
 
@@ -1320,6 +1365,9 @@ void Speed_processing(void)
 
 void reg_ADC_processing(void)
 {
+#ifdef BENCH_BUILD
+	if(bench_ol_keepalive) bench_ol_keepalive--;   /* 4 kHz : 8000 = 2 s sans rafraichissement SWD avant arret de l'outil */
+#endif
 	battery_current_cumulated-=battery_current_cumulated>>6;
 	battery_current_cumulated+= (adc_value[0]-bat_current_offset);   /* REVUE-PUISSANCE P8 : offset mesure au demarrage */
 	MS.Battery_Current=(int32_t)((float)(battery_current_cumulated>>6)*CAL_BAT_I); //Battery current in mA
@@ -1568,12 +1616,10 @@ void ADC0_1_IRQHandler(void)
     /* read ADC inserted group data register */
 
     __disable_irq();
-    i16_ph1_current = adc_inserted_data_read(ADC2, ADC_INSERTED_CHANNEL_0);
-    i16_ph2_current = adc_inserted_data_read(ADC1, ADC_INSERTED_CHANNEL_0);
-    i16_ph3_current = adc_inserted_data_read(ADC0, ADC_INSERTED_CHANNEL_0);
-
-    /* REVUE-PUISSANCE P2 : surintensite sur les mesures brutes, a chaque periode PWM, avant tout calcul */
-    safety_check_phase_currents(i16_ph1_current, i16_ph2_current, i16_ph3_current);
+    /* CURRENT_SIGN (config.h) : hypothese de signe a verifier au banc, -1 = convention de l'origine AOCI */
+    i16_ph1_current = CURRENT_SIGN * (int16_t)adc_inserted_data_read(ADC2, ADC_INSERTED_CHANNEL_0);
+    i16_ph2_current = CURRENT_SIGN * (int16_t)adc_inserted_data_read(ADC1, ADC_INSERTED_CHANNEL_0);
+    i16_ph3_current = CURRENT_SIGN * (int16_t)adc_inserted_data_read(ADC0, ADC_INSERTED_CHANNEL_0);
 
 
 	switch (MS.char_dyn_adc_state) //read in according to state
@@ -1610,6 +1656,13 @@ void ADC0_1_IRQHandler(void)
 
 		} // end case
 
+    /* A1 porte 4 (revue Fangyan, point 5) : surintensite verifiee APRES reconstruction, a chaque periode PWM, avant tout calcul.
+       ph1 et ph2 sont valides dans les trois etats ; ph3 brute peut etre fausse en etat 1 (phase C la plus chargee) et n'y est
+       pas reconstruite : la troisieme phase est donc toujours deduite des deux autres (somme des courants nulle). */
+    safety_check_phase_currents(i16_ph1_current, i16_ph2_current, (int16_t)(-(i16_ph1_current + i16_ph2_current)));
+    /* garde : quel que soit le chemin qui aurait remis POEN a 1, un defaut verrouille recoupe dans la periode */
+    if(safety_is_latched()) safety_pwm_off();
+
     //get the recent timer value from the Hall timer
     ui16_tim2_recent = timer_counter_read(TIMER2);
     if (ui16_tim2_recent>SIXSTEPTHRESHOLD<<1){
@@ -1640,6 +1693,11 @@ void ADC0_1_IRQHandler(void)
 
     //q31_rotorposition_absolute=(int16_t)((180.0/75.0)*(float)(1<<31));
     if(ui_8_PWM_ON_Flag && !safety_is_latched()){
+#ifdef BENCH_BUILD
+		if(bench_ol_active){
+			bench_ol_vector(i16_ph1_current, i16_ph2_current, bench_ol_angle, bench_ol_ud, &MS);
+		} else
+#endif
 		FOC_calculation(i16_ph1_current, i16_ph2_current,
 					q31_rotorposition_absolute,
 					(((int16_t) MP.reverse * i8_reverse_flag)
@@ -1652,6 +1710,43 @@ void ADC0_1_IRQHandler(void)
     }
     __enable_irq();
 
+}
+
+/* A1 porte 4 (revue Fangyan, point 4). Appelee avec ui_8_PWM_ON_Flag = 0 : l'ISR n'ecrit alors pas les CCR.
+   PI et tensions a zero, rapports cycliques neutres (50 %), puis test du verrou et POEN = 1 interruptions masquees :
+   l'ISR ADC ne peut pas poser un defaut entre le test et l'activation. Si elle en pose un juste apres, elle recoupe (garde ISR). */
+static uint8_t pwm_enable_safe(void)
+{
+	uint8_t ok;
+	PI_iq.integral_part=0;
+	PI_iq.out=0;
+	PI_id.integral_part=0;
+	PI_id.out=0;
+	MS.u_d=0;
+	MS.u_q=0;
+	MS.u_abs=0;
+	BC_limit_flag=0;
+	timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_0,_T>>1);
+	timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_1,_T>>1);
+	timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_2,_T>>1);
+	__disable_irq();
+	ok = !safety_is_latched();
+	if(ok) TIMER_CCHP(TIMER0) |= (uint32_t)TIMER_CCHP_POEN;
+	__enable_irq();
+	return ok;
+}
+
+/* A1 porte 4 : MOE = 0 d'abord, puis le drapeau (l'ISR cesse d'ecrire les CCR), puis CCR neutres et integrales a zero.
+   Avant : CCR ecrits avant le drapeau, une ISR intercalee pouvait laisser des rapports cycliques non neutres. */
+static void pwm_disable(void)
+{
+	safety_pwm_off();
+	ui_8_PWM_ON_Flag=0;
+	timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_0,_T>>1);
+	timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_1,_T>>1);
+	timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_2,_T>>1);
+	PI_iq.integral_part=0;
+	PI_id.integral_part=0;
 }
 
 int32_t map (int32_t x, int32_t in_min, int32_t in_max, int32_t out_min, int32_t out_max)
@@ -1928,6 +2023,9 @@ fmc_state_enum fmc_multi_word_program(uint32_t offset, uint8_t* data, uint8_t wo
 
 void write_virtual_eeprom(void)
 	{
+#ifdef BENCH_NO_EEPROM
+		return; /* build banc : jamais d'effacement ni d'ecriture de la page (0x6101, 0x62D9, 0x3203, multitrame, fin d'apprentissage) */
+#endif
 		fmc_erase_pages();
 		fmc_program_hall_angles();
 		fmc_multi_word_program(FMC_OFFSET_MP, (uint8_t*)&MP, (sizeof(MP)+3)/4); //Did not know padding yet :-)
@@ -1935,6 +2033,9 @@ void write_virtual_eeprom(void)
 
 void read_virtual_eeprom(void)
 	{
+#ifdef BENCH_NO_EEPROM
+		return; /* build banc : MP et angles Hall viennent uniquement du build */
+#endif
     //read individual hall angles from virtual EEPROM
     ptrd = (uint32_t *)FMC_WRITE_START_ADDR;
     if(0xFFFFFFFF != (*(ptrd+1))){
@@ -2066,12 +2167,12 @@ uint16_t update_setpoint(void){
 
 
 	/* coupe aussi MOE = 0 dans la boucle lente des que la consigne retombe a zero */
+#ifdef BENCH_BUILD
+	if(!MS.i_q_setpoint_temp && ui_8_PWM_ON_Flag && !bench_ol_active){   /* l'outil vecteur fixe gere sa propre coupure */
+#else
 	if(!MS.i_q_setpoint_temp && ui_8_PWM_ON_Flag){
-		timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_0,_T>>1);
-		timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_1,_T>>1);
-		timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_2,_T>>1);
-		timer_primary_output_config(TIMER0,DISABLE);
-		ui_8_PWM_ON_Flag=0;
+#endif
+		pwm_disable();
 	}
 	return MS.i_q_setpoint_temp;
 

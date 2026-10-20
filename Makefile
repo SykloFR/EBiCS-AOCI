@@ -47,6 +47,18 @@ SRCDIR   = src
 AOCI_OUT = $(BUILD)/ebics_aoci_full.bin
 endif
 
+# Build de banc porte 4 (voir inc/config.h, bloc BENCH_BUILD) : mingw32-make CORE=m3 BENCH=1 CURRENT_SIGN=-1 aoci
+# -> dossier build-m3-banc, image ..._BANC_aoci_full.bin, fichiers .su (usage de pile par fonction)
+ifeq ($(BENCH),1)
+ifndef CURRENT_SIGN
+$(error BENCH=1 : passer CURRENT_SIGN=-1 ou CURRENT_SIGN=1 explicitement)
+endif
+DEFS    += -DBENCH_BUILD -DCURRENT_SIGN=$(CURRENT_SIGN)
+BUILD   := $(BUILD)-banc
+AOCI_OUT = $(BUILD)/ebics_BANC_aoci_full.bin
+STACKFLAGS = -fstack-usage
+endif
+
 ifeq ($(OS),Windows_NT)
 MKDIR_P = @if not exist "$(subst /,\,$(1))" mkdir "$(subst /,\,$(1))"
 RM_RF   = if exist $(subst /,\,$(BUILD)) rmdir /s /q $(subst /,\,$(BUILD))
@@ -58,7 +70,7 @@ endif
 TARGET  = $(BUILD)/ebics
 
 CFLAGS  = $(CPU) $(DEFS) $(INCS) -Os -g -std=gnu99 -Wall \
-          -ffunction-sections -fdata-sections -MMD -MP
+          -ffunction-sections -fdata-sections -MMD -MP $(STACKFLAGS)
 LDFLAGS = $(CPU) -T$(LDSCRIPT) -Wl,--gc-sections \
           -Wl,-Map=$(TARGET).map --specs=nano.specs --specs=nosys.specs \
           $(DSPLIB) -lm

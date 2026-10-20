@@ -187,6 +187,35 @@ q31_t PI_control (PI_control_t* PI_c)
 }
 
 
+#ifdef BENCH_BUILD
+/* Outil de banc « vecteur fixe » (porte 4, A5), build banc seulement : tension u_d a l'angle electrique q31_teta, u_q = 0, sans PI.
+   Meme convention d'angle que FOC_calculation (inverse de Park avec -sin) : un angle releve ici est directement un angle FOC.
+   u_d est borne a [0, BENCH_OL_UD_MAX] ici, quel que soit ce que le SWD a ecrit. i_d / i_q non filtres, pour lecture SWD. */
+void bench_ol_vector(int16_t int16_i_as, int16_t int16_i_bs, q31_t q31_teta, int16_t int16_u_d, MotorState_t* MS_FOC)
+{
+	q31_t q31_i_alpha = 0, q31_i_beta = 0, q31_i_d = 0, q31_i_q = 0;
+	q31_t q31_u_alpha = 0, q31_u_beta = 0;
+	q31_t sinevalue = 0, cosinevalue = 0;
+
+	if(int16_u_d > BENCH_OL_UD_MAX) int16_u_d = BENCH_OL_UD_MAX;
+	if(int16_u_d < 0) int16_u_d = 0;
+
+	arm_clarke_q31((q31_t)int16_i_as, (q31_t)int16_i_bs, &q31_i_alpha, &q31_i_beta);
+	arm_sin_cos_q31(q31_teta, &sinevalue, &cosinevalue);
+	if(sinevalue==-2147483648)sinevalue=-2147483647;
+	if(cosinevalue==-2147483648)cosinevalue=-2147483647;
+	arm_park_q31(q31_i_alpha, q31_i_beta, &q31_i_d, &q31_i_q, sinevalue, cosinevalue);
+	MS_FOC->i_d = q31_i_d;
+	MS_FOC->i_q = q31_i_q;
+	MS_FOC->u_d = int16_u_d;
+	MS_FOC->u_q = 0;
+	MS_FOC->u_abs = int16_u_d;
+
+	arm_inv_park_q31(int16_u_d, 0, &q31_u_alpha, &q31_u_beta, -sinevalue, cosinevalue);
+	svpwm(q31_u_alpha, q31_u_beta);
+}
+#endif
+
 void svpwm(q31_t q31_u_alpha, q31_t q31_u_beta)	{
 
 /*

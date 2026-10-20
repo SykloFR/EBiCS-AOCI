@@ -9,6 +9,7 @@ build/
 build-m3/
 build-m3/
 build-m3-prop/
+build-m3-banc/
 tools/bench/**/*.bin
 tools/bench/**/*.elf
 tools/bench/**/*.map

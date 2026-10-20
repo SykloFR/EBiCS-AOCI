@@ -54,8 +54,19 @@ Zerobss:
   bx lr
 .size Reset_Handler, .-Reset_Handler
 
+/* A1 porte 4 : toute interruption ou exception sans handler coupe la puissance puis redemarre la puce.
+   Avant : boucle infinie, PWM figee avec MOE = 1 jusqu'au chien de garde (~200 ms). Aucun appel de bibliotheque, aucune pile. */
     .section .text.Default_Handler,"ax",%progbits
 Default_Handler:
+  ldr   r0, =0x40012C44        /* TIMER0_CCHP (TIM1_BDTR) */
+  ldr   r1, [r0]
+  bic   r1, r1, #0x8000        /* POEN (MOE) = 0 */
+  str   r1, [r0]
+  dsb
+  ldr   r0, =0xE000ED0C        /* SCB->AIRCR */
+  ldr   r1, =0x05FA0004        /* VECTKEY | SYSRESETREQ */
+  str   r1, [r0]
+  dsb
 Infinite_Loop:
   b Infinite_Loop
   .size Default_Handler, .-Default_Handler
