@@ -10,6 +10,7 @@ build-m3/
 build-m3/
 build-m3-prop/
 build-m3-banc/
+__pycache__/
 tools/bench/**/*.bin
 tools/bench/**/*.elf
 tools/bench/**/*.map
