@@ -294,6 +294,15 @@ volatile uint8_t offset_cal_pont = 0;             /* vrai pendant la mesure pont
 /* PORTE 4, correctif F2 : variante lue au demarrage et seuils en points a son echelle */
 volatile uint8_t bench_variante = 0;
 uint8_t bench_ph_max = PH_CURRENT_MAX, bench_walk_max = BENCH_WALK_ILIM_MAX;
+/* PORTE 4, diagnostic du demarrage du pont et correctif candidat F3 (26/10/2026 : defaut 3 des le palier u_d 0 sur le velo,
+   zeros pourtant identiques a 1 pt pres) : capture des CAP_N premieres periodes PWM apres chaque MOE = 1 (courants apres
+   offset, avant reconstruction, satures a +-127 pts), envoyee par CAN (E208, E209). Precharge F3 : avant le decoupage, les
+   trois MOSFET bas fermes pendant bench_precharge_ms ms (0 = sans, reglable par CAN), pour recharger les bootstraps. */
+volatile int8_t cap_ph[3][CAP_N];
+volatile uint8_t cap_n = CAP_N;                   /* rang de la prochaine periode capturee ; CAP_N : capture finie */
+volatile uint8_t cap_trip = 0xFF;                 /* periode ou le defaut verrouille est vu (une periode apres le trip) */
+volatile uint8_t cap_seq = 0;                     /* numero de la capture, incremente a chaque MOE = 1 */
+volatile uint8_t bench_precharge_ms = 0;
 #endif
 
 static void suivre_hall(void)
@@ -1848,6 +1857,14 @@ void ADC0_1_IRQHandler(void)
     		if(++n_pont >= PH_TRIP_PERIODS) safety_fault(FAULT_OFFSET);
     	} else n_pont = 0;
     }
+    /* diagnostic du demarrage du pont : les CAP_N periodes qui suivent MOE = 1 (pwm_enable_safe) */
+    if(cap_n < CAP_N){
+    	cap_ph[0][cap_n] = CAP_SAT(i16_ph1_current);
+    	cap_ph[1][cap_n] = CAP_SAT(i16_ph2_current);
+    	cap_ph[2][cap_n] = CAP_SAT(i16_ph3_current);
+    	if(cap_trip == 0xFF && safety_is_latched()) cap_trip = cap_n;
+    	cap_n++;
+    }
 #endif
 
 
@@ -1964,8 +1981,28 @@ static uint8_t pwm_enable_safe(void)
 	timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_2,_T>>1);
 	__disable_irq();
 	ok = !safety_is_latched() && offsets_valides;     /* PORTE 4 : jamais MOE sans offsets calibres roue arretee */
+#ifdef BENCH_BUILD
+	if(ok){
+		/* F3 : CHCTL2 = 0, aucune sortie validee : repos OSSR, hauts bloques (CHxP = 0), bas passants (CHxNP = 0), comme
+		   offset_cal_phase avec les trois bras. Moteur arrete : aucun courant ; s'il tourne, le trip reste actif. */
+		if(bench_precharge_ms) TIMER_CHCTL2(TIMER0) = 0U;
+		cap_trip = 0xFF; cap_n = 0; cap_seq++;
+	}
+#endif
 	if(ok) TIMER_CCHP(TIMER0) |= (uint32_t)TIMER_CCHP_POEN;
 	__enable_irq();
+#ifdef BENCH_BUILD
+	if(ok && bench_precharge_ms){
+		for(uint16_t i = 0; i < 4u * bench_precharge_ms; i++){   /* ticks de 4 kHz */
+			reg_ADC_flag = 0;
+			if(!wait_reg_adc_flag()) break;
+		}
+		__disable_irq();
+		TIMER_CHCTL2(TIMER0) = CHCTL2_RUN;            /* decoupage a 50 % (CCR neutres ci-dessus) */
+		ok = !safety_is_latched();
+		__enable_irq();
+	}
+#endif
 	return ok;
 }
 

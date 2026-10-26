@@ -101,6 +101,15 @@ func("offset_cal_pont_50", 90)
 isr = func("ADC0_1_IRQHandler", 0)
 print("garde F1 dans l'ISR (lit offset_cal_pont) :", "OK" if lit_adresse(isr, "offset_cal_pont") else "A VERIFIER")
 cal = func("calibrate_current_offsets", 0)
+section("Diagnostic du demarrage du pont et precharge F3 (26/10/2026)")
+for s in ("cap_ph", "cap_n", "cap_trip", "cap_seq", "bench_precharge_ms"):
+    v = syms.get(s)
+    print(f"{s:20s} " + (f"{v[0]:#010x} taille {v[1]:4d}" if v else "absent"))
+print("capture dans l'ISR (lit cap_n) :", "OK" if lit_adresse(isr, "cap_n") else "A VERIFIER")
+pes = func("pwm_enable_safe", 70) if "pwm_enable_safe" in syms else ""
+print("pwm_enable_safe lit bench_precharge_ms :", "OK" if lit_adresse(pes, "bench_precharge_ms") else "A VERIFIER (inline ?)")
+print("pwm_enable_safe ecrit CHCTL2 (TIMER0 0x40012c20) :",
+      "OK" if re.search(r"\.word\s+0x40012c(00|20)\b", pes) else "A VERIFIER")
 if "offset_cal_pont_50" in syms:
     print("calibrate_current_offsets appelle offset_cal_pont_50 :", "OK" if "<offset_cal_pont_50>" in cal else "A VERIFIER")
 else:

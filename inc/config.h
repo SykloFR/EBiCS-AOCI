@@ -140,6 +140,10 @@
 /* PORTE 4, correctif F2 : octet de variante 0x0803D800 (hors image, conserve par le flash). Les seuils en points ci-dessus
    valent pour 2 (R = 1,5, 3,14 pts/A) ; 1 (R = 3,5, 7,33 pts/A) les multiplie par 733 / 314 ; autre valeur : defaut 10. */
 #define VARIANTE_ADDR 0x0803D800u
+/* PORTE 4, diagnostic du demarrage du pont et precharge F3 (voir main.c, pwm_enable_safe) */
+#define CAP_N 128                // periodes PWM capturees apres MOE = 1 (~7,8 ms a 16,5 kHz)
+#define CAP_SAT(v) ((int8_t)((v) > 127 ? 127 : ((v) < -127 ? -127 : (v))))
+#define PRECHARGE_MAX_MS 5       // precharge des bootstraps reglable par CAN de 0 a 5 ms
 #define PH_COUNTS_PER_A_X100_R35 733
 #ifndef CURRENT_SIGN
 #error "build banc : CURRENT_SIGN doit etre passe explicitement (CURRENT_SIGN=-1 ou 1), c'est une hypothese a verifier en A5/A6"

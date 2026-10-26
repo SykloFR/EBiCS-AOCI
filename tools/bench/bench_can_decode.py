@@ -8,7 +8,8 @@ import argparse, collections, csv, struct, sys, time
 import can
 
 PERIODE = {0xE000: 20, 0xE001: 20, 0xE002: 50, 0xE100: 50, 0xE101: 50, 0xE102: 50, 0xE103: 50,
-           0xE200: 100, 0xE201: 100, 0xE202: 100, 0xE203: 1000, 0xE204: 1000, 0xE205: 1000, 0xE207: 1000}
+           0xE200: 100, 0xE201: 100, 0xE202: 100, 0xE203: 1000, 0xE204: 1000, 0xE205: 1000, 0xE207: 1000,
+           0xE208: 20, 0xE209: 1000}
 
 
 def decode(cle, d):
@@ -48,6 +49,11 @@ def decode(cle, d):
     if cle == 0xE205:
         return dict(off_ph1=u16(1), off_ph2=u16(3), off_ph3=u16(5), off_dans_plage=d[7] & 1, pont_appliques=d[7] >> 1 & 1,
                     calibration_faite=d[7] >> 2 & 1, roue_arretee=d[7] >> 3 & 1, hall_valide=d[7] >> 4 & 1)
+    if cle == 0xE208:
+        i8 = lambda i: struct.unpack_from("<b", d, i)[0]
+        return dict(rang=u8(1), a=(i8(2), i8(3), i8(4)), b=(i8(5), i8(6), i8(7)))
+    if cle == 0xE209:
+        return dict(cap_n=u8(1), cap_trip=u8(2), precharge_ms=u8(3), cap_seq=u8(4), chctl2=hex(u16(5)), cap_N=u8(7))
     if cle == 0xE207:
         return dict(variante=u8(1), pont_ph1=u16(2), pont_ph2=u16(4), pont_ph3=u16(6))
     return {}

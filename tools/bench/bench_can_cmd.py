@@ -16,6 +16,7 @@ from bench_can_decode import decode  # noqa: E402
 ID_ESTOP, ID_HB, ID_CMD = 0x1DF0E000, 0x1DF0E001, 0x1DF0E002
 OP_OL_SET, OP_OL_STOP = 0x10, 0x11
 OP_WALK_START, OP_WALK_STOP = 0x20, 0x21
+OP_PRECHARGE = 0x30
 STATUTS = {0: "accepté", 1: "refusé : heartbeat absent ou < 500 ms", 2: "refusé : défaut verrouillé",
            3: "refusé : frein ou demande d'assistance", 4: "refusé : commande invalide",
            5: "refusé : offsets non calibrés (roue jamais arrêtée)",
@@ -27,6 +28,7 @@ class Banc:
     def __init__(self, canal="PCAN_USBBUS1"):
         self.bus = can.Bus(interface="pcan", channel=canal, bitrate=250000, state=can.BusState.ACTIVE)
         self.dernier, self.acks, self.cmd_seq = {}, [], 0
+        self.capture = {}                 # E208 : rang -> (cap_seq vu en E209 a la reception, (ph1, ph2, ph3))
         self._verrou = threading.Lock()
         self._hb_actif = threading.Event()
         self._fin = threading.Event()
@@ -53,6 +55,9 @@ class Banc:
                 self.acks.append((time.perf_counter(), m.data[1], m.data[2], m.data[3]))
             else:
                 self.dernier[cle] = decode(cle, bytes(m.data))
+                if cle == 0xE208:
+                    d, sq = self.dernier[cle], self.dernier.get(0xE209, {}).get("cap_seq")
+                    self.capture[d["rang"]], self.capture[d["rang"] + 1] = (sq, d["a"]), (sq, d["b"])
 
     def _heartbeat(self):
         n, t = 0, time.perf_counter()
@@ -85,6 +90,9 @@ class Banc:
 
     def ol_stop(self):
         return self._commande(OP_OL_STOP)
+
+    def precharge(self, ms):
+        return self._commande(OP_PRECHARGE, bytes([max(0, min(255, int(ms)))]))
 
     def walk_start(self, ilim_pts):
         return self._commande(OP_WALK_START, bytes([max(0, min(255, int(ilim_pts)))]))

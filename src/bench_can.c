@@ -23,6 +23,10 @@
  *               faite (MOE autorisé), b3 roue arrêtée (Hall stable 50 ms et vitesse nulle), b4 état Hall valide 1 à 6)
  *   E207  1 Hz  correctifs F1 / F2 : variante 0x0803D800 (u8, 0xFF = vierge), offsets pont à 50 % ph1, ph2, ph3 (u16, pt,
  *               0 = pas encore mesurés). E204 donne PH_CURRENT_MAX et PH_CURRENT_TRIP à l'échelle de la variante.
+ *   E208 50 Hz  capture du demarrage du pont : rang i (u8), puis ph1, ph2, ph3 (i8, pts) aux periodes i et i + 1 ; i parcourt
+ *               0, 2, ..., CAP_N - 2 (tableau complet en 1,28 s). Courants apres offset, avant reconstruction.
+ *   E209  1 Hz  capture : rang atteint (u8, CAP_N = finie), periode ou le defaut verrouille est vu (u8, 0xFF aucun),
+ *               precharge (u8, ms), numero de capture (u8), CHCTL2 (u16), CAP_N (u8)
  *   E206  sur commande : opcode (u8), cmd_seq (u8), statut (u8 : 0 accepté, 1 refusé sans heartbeat depuis 500 ms,
  *               2 refusé défaut verrouillé, 3 refusé frein ou demande d'assistance, 4 commande invalide,
  *               5 refusé offsets non calibrés : roue jamais arrêtée depuis le démarrage, 6 refusé angles du codeur non
@@ -79,6 +83,8 @@ extern volatile uint16_t hall_stable_ticks;
 extern volatile int16_t offset_pont_ph[3];
 extern volatile uint8_t bench_variante;
 extern uint8_t bench_ph_max, bench_walk_max;
+extern volatile int8_t cap_ph[3][CAP_N];
+extern volatile uint8_t cap_n, cap_trip, cap_seq, bench_precharge_ms;
 extern volatile uint8_t bench_ol_enable;
 extern volatile uint8_t bench_ol_active;
 extern volatile int16_t bench_ol_ud;
@@ -97,6 +103,7 @@ volatile uint32_t bench_ms = 0;
 #define OP_OL_STOP 0x11u
 #define OP_WALK_START 0x20u
 #define OP_WALK_STOP  0x21u
+#define OP_PRECHARGE  0x30u                              /* duree de precharge F3 (u8, ms, 0 a PRECHARGE_MAX_MS) */
 
 static uint8_t hb_vu = 0, ol_par_can = 0, defaut_banc = 0, rx_perdues = 0;
 volatile uint8_t bench_walk = 0, bench_walk_ilim = 0;
@@ -110,11 +117,13 @@ static bench_trame_t trames[] = {
     {0xE1, 0x00,   50, 0, 0}, {0xE1, 0x01,   50, 0, 0}, {0xE1, 0x02,   50, 0, 0}, {0xE1, 0x03, 50, 0, 0},
     {0xE2, 0x00,  100, 0, 0}, {0xE2, 0x01,  100, 0, 0}, {0xE2, 0x02,  100, 0, 0},
     {0xE2, 0x03, 1000, 0, 0}, {0xE2, 0x04, 1000, 0, 0}, {0xE2, 0x05, 1000, 0, 0}, {0xE2, 0x07, 1000, 0, 0},
+    {0xE2, 0x08,   20, 0, 0}, {0xE2, 0x09, 1000, 0, 0},
 };
 #define NB_TRAMES (sizeof(trames) / sizeof(trames[0]))
 
 static uint16_t lost = 0, cycles_max = 0;
 static uint8_t prochaine = 0;
+static uint8_t cap_tx = 0;                               /* prochain rang envoye par E208 */
 /* courants de phase : sommes des carrés et crête sur la fenêtre de E100 (200 échantillons à 4 kHz) */
 static uint32_t somme2[3] = {0, 0, 0};
 static uint16_t n_ech = 0;
@@ -199,6 +208,13 @@ static void commande(const can_receive_message_struct* m, uint32_t now)
     uint8_t op = m->rx_data[0], seq = m->rx_data[1];
     if (op == OP_OL_STOP) {
         bench_ol_enable = 0; bench_ol_ud = 0; ol_par_can = 0;
+        repondre(op, seq, 0);
+        return;
+    }
+    if (op == OP_PRECHARGE) {                            /* reglage seul, sans heartbeat ; refuse pendant un essai */
+        if (m->rx_dlen < 3 || m->rx_data[2] > PRECHARGE_MAX_MS) { repondre(op, seq, 4); return; }
+        if (ui_8_PWM_ON_Flag || bench_ol_enable || bench_ol_active || bench_walk) { repondre(op, seq, 7); return; }
+        bench_precharge_ms = m->rx_data[2];
         repondre(op, seq, 0);
         return;
     }
@@ -346,6 +362,15 @@ static uint8_t remplir(const bench_trame_t* t, uint8_t* d)
                              | (hall_stable_ticks >= 200u && MS.Speedx100 == 0 ? 8u : 0u)
                              | (h != 0u && h != 7u ? 0x10u : 0u));
         }
+        return 8;
+    case 0xE208:
+        d[1] = cap_tx;
+        for (int k = 0; k < 3; k++) { d[2 + k] = (uint8_t)cap_ph[k][cap_tx]; d[5 + k] = (uint8_t)cap_ph[k][cap_tx + 1]; }
+        cap_tx = (uint8_t)((cap_tx + 2u) % CAP_N);
+        return 8;
+    case 0xE209:
+        d[1] = cap_n; d[2] = cap_trip; d[3] = bench_precharge_ms; d[4] = cap_seq;
+        put16(d + 5, (int32_t)(TIMER_CHCTL2(TIMER0) & 0xFFFFu)); d[7] = CAP_N;
         return 8;
     case 0xE207:
         d[1] = bench_variante;
