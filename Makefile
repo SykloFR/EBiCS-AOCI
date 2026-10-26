@@ -54,6 +54,11 @@ ifndef CURRENT_SIGN
 $(error BENCH=1 : passer CURRENT_SIGN=-1 ou CURRENT_SIGN=1 explicitement)
 endif
 DEFS    += -DBENCH_BUILD -DCURRENT_SIGN=$(CURRENT_SIGN)
+# hash git court annoncé par la trame CAN E203 ; hors dépôt (git archive) : 0, ou passer GIT_HASH=xxxxxxxx pour
+# reproduire un build à l'identique
+GIT_HASH  ?= $(or $(shell git rev-parse --short=8 HEAD 2>/dev/null),0)
+GIT_DIRTY ?= $(if $(shell git status --porcelain --untracked-files=no 2>/dev/null),1,0)
+DEFS    += -DBENCH_GIT_HASH=0x$(GIT_HASH)u -DBENCH_GIT_DIRTY=$(GIT_DIRTY)
 BUILD   := $(BUILD)-banc
 AOCI_OUT = $(BUILD)/ebics_BANC_aoci_full.bin
 STACKFLAGS = -fstack-usage

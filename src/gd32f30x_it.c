@@ -36,6 +36,7 @@ OF SUCH DAMAGE.
 #include "main.h"
 #include "systick.h"
 #include "safety.h"
+#include "bench_can.h"
 
 /*!
     \brief      this function handles NMI exception
@@ -145,6 +146,9 @@ void SysTick_Handler(void)
 {
     //led_spark();
     delay_decrement();
+#ifdef BENCH_BUILD
+    bench_ms++;                                  /* horloge de la télémétrie CAN de banc (bench_can.c) */
+#endif
 }
 
 

@@ -38,6 +38,7 @@ OF SUCH DAMAGE.
 #include "parser.h"
 #include "aoci_board.h"
 #include "safety.h"
+#include "bench_can.h"
 #include "foc_int.h"
 /* variables partagees avec les interruptions / le DMA : volatile obligatoire en -Os (EBiCS est compile en -O0,
    sans quoi while(!reg_ADC_flag); devient une boucle infinie et tout le code apres est supprime) */
@@ -418,6 +419,9 @@ int main(void)
 
     /* initialize CAN and CAN filter */
     can_networking_init();
+#ifdef BENCH_BUILD
+    bench_can_init();                            /* télémétrie CAN de banc, émission seule (bench_can.c) */
+#endif
 
     /* enable CAN receive FIFO0 not empty interrupt */
     receive_flag = RESET;
@@ -531,6 +535,9 @@ int main(void)
 
     while (1){
     	fwdgt_counter_reload();
+#ifdef BENCH_BUILD
+    	bench_can_poll();                        /* une trame de télémétrie au plus par tour, jamais bloquant */
+#endif
 
 #if (DISPLAY_TYPE == DISPLAY_TYPE_BAFANG)
     	if(receive_flag){
@@ -1430,6 +1437,7 @@ void reg_ADC_processing(void)
 {
 #ifdef BENCH_BUILD
 	if(bench_ol_keepalive) bench_ol_keepalive--;   /* 4 kHz : 8000 = 2 s sans rafraichissement SWD avant arret de l'outil */
+	bench_can_sample(i16_ph1_current, i16_ph2_current, i16_ph3_current);   /* courants efficaces de la trame E100 */
 #endif
 	battery_current_cumulated-=battery_current_cumulated>>6;
 	battery_current_cumulated+= (adc_value[0]-bat_current_offset);   /* REVUE-PUISSANCE P8 : offset mesure au demarrage */
