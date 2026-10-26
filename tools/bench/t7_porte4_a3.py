@@ -72,6 +72,7 @@ def wait_halt(t, timeout=2.0):
 with ConnectHelper.session_with_chosen_probe(target_override="stm32f103rc", connect_mode="attach",
                                              options={"frequency": 1000000}) as s:
     t = s.target
+    elfsym.verifie_image(t, ELF)
     t.write32(DBGMCU_CR, t.read32(DBGMCU_CR) | (1 << 8))     # IWDG gele pendant les arrets du coeur
     t.write32(DEMCR, t.read32(DEMCR) & ~1)                    # pas d'arret sur reset (vector catch)
     print(f"depart : MOE {moe(t)}, defaut {rd(t, 'safety_fault_code_latched')}, cause reset {rd(t, 'boot_reset_flags'):#x}")

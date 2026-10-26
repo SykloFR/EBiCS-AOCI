@@ -74,6 +74,7 @@ with ConnectHelper.session_with_chosen_probe(target_override="stm32f103rc", conn
             sys.exit("ARRET : relecture differente de l'image")
         t.reset(Target.ResetType.SYSRESETREQ)   # reset logiciel : le build de banc doit verrouiller le defaut 21
         time.sleep(1.5)                 # fenetre CAN du bootloader (~0,5 s) puis demarrage de l'appli (~0,6 s)
+    elfsym.verifie_image(t, ELF)
     m = moe(t)
     for adr, (nom, n) in REF.items():
         b = bytes(t.read_memory_block8(adr, n))

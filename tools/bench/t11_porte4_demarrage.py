@@ -26,6 +26,7 @@ while time.time() - t_debut < DUREE:
         with ConnectHelper.session_with_chosen_probe(target_override="stm32f103rc", connect_mode="attach",
                                                      options={"frequency": 1000000}) as s:
             t = s.target
+            elfsym.verifie_image(t, ELF)
             print(f"{time.time() - t_debut:7.2f} s connexion", flush=True)
             while time.time() - t_debut < DUREE:
                 v = [rd(t, e) for e in V]

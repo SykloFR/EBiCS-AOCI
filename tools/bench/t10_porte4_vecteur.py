@@ -46,6 +46,7 @@ paliers, arret = [], None
 with ConnectHelper.session_with_chosen_probe(target_override="stm32f103rc", connect_mode="attach",
                                              options={"frequency": 4000000}) as s:
     t = s.target
+    elfsym.verifie_image(t, ELF)
     depart = {e: rd(t, e) for e in ("safety_fault_code_latched", "bench_ol_active", "MS.i_q_setpoint", "ui_8_PWM_ON_Flag")}
     print(f"depart : MOE {moe(t)}, {depart}")
     if moe(t) or any(depart.values()):

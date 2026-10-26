@@ -35,6 +35,7 @@ def verdict(nom, cond, detail):
 with ConnectHelper.session_with_chosen_probe(target_override="stm32f103rc", connect_mode="attach",
                                              options={"frequency": 1000000}) as s:
     t = s.target
+    elfsym.verifie_image(t, ELF)
     f = rd(t, "boot_reset_flags")
     print(f"cause du reset {f:#x}, defaut {rd(t, 'safety_fault_code_latched')}, offsets injectes : "
           + ", ".join(f"{k} {t.read32(a) & 0xFFF}" for k, a in IOFF.items()) + f", offset batterie {rd(t, 'bat_current_offset')}")
