@@ -116,7 +116,9 @@
 #define SYSTEM_VOLTAGE 36// in V (cible AOCI 36V 15A, pack 10S)
 #define MAX_VOLTAGE 42// in V (10S charge a 4,2 V/element)
 
-/* PORTE 4 (A1, revue Fangyan du 19/10/2026) : build de banc, mingw32-make CORE=m3 BENCH=1 CURRENT_SIGN=-1 aoci.
+/* PORTE 4 (A1, revue Fangyan du 19/10/2026) : build de banc, mingw32-make CORE=m3 BENCH=1 CURRENT_SIGN=1 aoci.
+   CURRENT_SIGN = 1 depuis le correctif F6 (26/10/2026, velo) : convention d'EBiCS (runPIcontrol : u_d = -PI(i_d),
+   u_q = +PI(i_q)), qui attend u_d -> -i_d et u_q -> +i_q ; avec -1, les deux boucles divergeaient (walk 3 pts).
    Alim de labo 24 V / 0,5-1 A, moteur a vide. Echelle 3,14 points/A (octet 0x0803D800 = 2 lu le 20/10/2026). */
 #ifdef BENCH_BUILD
 #undef PH_CURRENT_MAX
@@ -144,7 +146,6 @@
 #define CAP_N 128                // periodes PWM capturees apres MOE = 1 (~7,8 ms a 16,5 kHz)
 #define CAP_SAT(v) ((int8_t)((v) > 127 ? 127 : ((v) < -127 ? -127 : (v))))
 #define PRECHARGE_MAX_MS 5       // precharge des bootstraps reglable par CAN de 0 a 5 ms
-#define FOC_UQ_SIGN (-1)         // correctif F5 : u_q -> +i_q (voir FOC.c, FOC_calculation)
 #define PH_COUNTS_PER_A_X100_R35 733
 #ifndef CURRENT_SIGN
 #error "build banc : CURRENT_SIGN doit etre passe explicitement (CURRENT_SIGN=-1 ou 1), c'est une hypothese a verifier en A5/A6"
@@ -155,10 +156,6 @@
    Hypothese a verifier au banc (A5 vecteur fixe, A6 premier run) ; hors build banc, comportement EBiCS inchange. */
 #ifndef CURRENT_SIGN
 #define CURRENT_SIGN 1
-#endif
-/* Signe de u_q a l'entree de l'inverse de Park (correctif F5) : -1 en build de banc AOCI, comportement EBiCS inchange sinon */
-#ifndef FOC_UQ_SIGN
-#define FOC_UQ_SIGN 1
 #endif
 
 //---------------------------------------------------------------------

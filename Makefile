@@ -47,7 +47,7 @@ SRCDIR   = src
 AOCI_OUT = $(BUILD)/ebics_aoci_full.bin
 endif
 
-# Build de banc porte 4 (voir inc/config.h, bloc BENCH_BUILD) : mingw32-make CORE=m3 BENCH=1 CURRENT_SIGN=-1 aoci
+# Build de banc porte 4 (voir inc/config.h, bloc BENCH_BUILD) : mingw32-make CORE=m3 BENCH=1 CURRENT_SIGN=1 aoci (F6)
 # -> dossier build-m3-banc, image ..._BANC_aoci_full.bin, fichiers .su (usage de pile par fonction)
 ifeq ($(BENCH),1)
 ifndef CURRENT_SIGN

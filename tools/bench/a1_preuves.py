@@ -1,11 +1,12 @@
 """Preuves du build de banc porte 4 (A1, revue Fangyan point 13). Lecture seule : n'ecrit que le rapport.
-Usage depuis la racine du depot, apres  mingw32-make OS= CORE=m3 BENCH=1 CURRENT_SIGN=-1 aoci :
-    python -I tools/bench/a1_preuves.py build-m3-banc > build-m3-banc/preuves_a1.txt
+Usage depuis la racine du depot, apres  mingw32-make OS= CORE=m3 BENCH=1 CURRENT_SIGN=1 aoci :
+    python -I tools/bench/a1_preuves.py build-m3-banc [CURRENT_SIGN=1] > build-m3-banc/preuves_a1.txt
 Contenu : empreintes, size, macros de banc effectives, symboles banc, desassemblage des points de securite,
 table de vecteurs (entrees sur Default_Handler croisees avec les IRQ activees), usage de pile (.su)."""
 import hashlib, os, re, struct, subprocess, sys
 
 B = sys.argv[1] if len(sys.argv) > 1 else "build-m3-banc"
+SIGNE = sys.argv[2] if len(sys.argv) > 2 else "1"   # meme valeur que le build (F6 : 1)
 ELF, BIN = f"{B}/ebics.elf", f"{B}/ebics.bin"
 IMG = f"{B}/ebics_BANC_aoci_full.bin"
 
@@ -29,7 +30,7 @@ print(run("arm-none-eabi-size", ELF).strip())
 
 section("Macros effectives (preprocesseur, memes options que le build banc)")
 cflags = ["-mcpu=cortex-m3", "-mthumb", "-mfloat-abi=soft", "-DGD32F10X_HD", "-DUSE_STDPERIPH_DRIVER", "-DARM_MATH_CM3",
-          "-DHXTAL_VALUE=12000000U", "-DBENCH_BUILD", "-DCURRENT_SIGN=-1", "-Iport_f10x", "-Iinc", "-IFirmware_F10x/CMSIS",
+          "-DHXTAL_VALUE=12000000U", "-DBENCH_BUILD", f"-DCURRENT_SIGN={SIGNE}", "-Iport_f10x", "-Iinc", "-IFirmware_F10x/CMSIS",
           "-IFirmware_F10x/CMSIS/GD/GD32F10x/Include", "-IFirmware_F10x/GD32F10x_standard_peripheral/Include"]
 macros = run("arm-none-eabi-gcc", *cflags, "-dM", "-E", "src/main.c")
 want = r"^#define (BENCH_\w+|PH_CURRENT_MAX|PH_CURRENT_TRIP|PH_TRIP_PERIODS|BATTERYCURRENT_MAX|VOLTAGE_MIN|" \

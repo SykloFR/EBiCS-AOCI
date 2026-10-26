@@ -1,6 +1,7 @@
 """Rampe douce de l'outil vecteur fixe par CAN, angle fixe, pour vérifier signe et échelle du courant sur un contrôleur
 sans SWD (vélo). u_d monte par paliers ; à chaque palier : moyennes de i_d, i_q (E000), courant efficace et crête de phase
-(E100), Ibat (E101). Attendu (validé au banc le 26/10, contrôleur n° 1) : i_d > 0 et croissant avec u_d, i_q ≈ 0.
+(E100), Ibat (E101). Attendu : |i_d| croissant avec u_d, i_q ≈ 0 ; i_d > 0 avec CURRENT_SIGN = -1 (banc et vélo le
+26/10), i_d < 0 avec CURRENT_SIGN = 1 (convention d'EBiCS, correctif F6).
 Arrêt au premier seuil : |i_d| ou |i_q| moyen >= SEUIL pts, défaut, MOE retombé, Ibat >= 0,4 A. OL_STOP à la fin.
 Correctifs F1 / F2 : affiche la variante et les offsets des deux méthodes (E205, E207), puis un premier palier à u_d 0
 pendant 2 s (aucune tension appliquée : |i_d| et |i_q| moyens doivent rester < SEUIL_UD0 = 5 pts, sinon arrêt).
