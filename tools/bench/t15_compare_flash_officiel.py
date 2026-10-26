@@ -1,7 +1,7 @@
 """Apres un flash par le CAN : relit par SWD (attach, lecture seule) la zone appli et la compare a un fichier de mise a jour
 AOCI (en-tete de 16 octets 5C A0 82 00 ... CRKXY2, puis l'image a partir de 0x08005000, CRC32 STM32 a 0x0803AFC0).
 Verifie aussi que le bootloader (0x08000000-0x08004FFF) et les pages 0x0803B000 / 0x0803F000 n'ont pas change.
-Usage : python tools/bench/t15_compare_flash_officiel.py FICHIER_AOCI.bin DOSSIER_PREUVES"""
+Usage : python tools/bench/t15_compare_flash_officiel.py FICHIER_AOCI.bin|IMAGE_aoci_full.bin DOSSIER_PREUVES"""
 import hashlib, os, sys
 from pyocd.core.helpers import ConnectHelper
 
@@ -9,9 +9,12 @@ FICHIER, OUT = sys.argv[1], sys.argv[2]
 APP, BOOT, BOOT_LEN = 0x08005000, 0x08000000, 0x5000
 REF = {0x0803B000: ("hall_0803B000.bin", 256), 0x0803F000: ("page_0803F000.bin", 2048)}
 f = open(FICHIER, "rb").read()
-if f[:4] != bytes.fromhex("5ca08200") or f[10:16] != b"CRKXY2":
-    sys.exit("ARRET : en-tete AOCI absent (5C A0 82 00 ... CRKXY2)")
-corps = f[16:]
+if len(f) == 0x36000:                      # image complete du build (*_aoci_full.bin) : image + CRC + 0xFF
+    corps = f[:0x35FC4]
+elif f[:4] == bytes.fromhex("5ca08200") and f[10:16] == b"CRKXY2":
+    corps = f[16:]
+else:
+    sys.exit("ARRET : ni fichier AOCI (5C A0 82 00 ... CRKXY2) ni image complete de 0x36000 octets")
 print(f"fichier {FICHIER} : {len(f)} octets, image {len(corps):#x} octets, CRC du fichier "
       f"{int.from_bytes(corps[0x0803AFC0 - APP:0x0803AFC4 - APP], 'little'):#010x}" if len(corps) >= 0x35FC4 else "")
 with ConnectHelper.session_with_chosen_probe(target_override="stm32f103rc", connect_mode="attach",
