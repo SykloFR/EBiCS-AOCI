@@ -121,7 +121,10 @@ void FOC_calculation(int16_t int16_i_as, int16_t int16_i_bs, q31_t q31_teta, int
 
 
 	//inverse Park transformation
-	arm_inv_park_q31(MS_FOC->u_d, MS_FOC->u_q, &q31_u_alpha, &q31_u_beta, -sinevalue, cosinevalue);
+	/* PORTE 4, correctif F5 (26/10/2026) : sur le controleur AOCI, la chaine inverse de Park (-sin) + svpwm (beta inverse)
+	   donne u_d -> +i_d (vecteur fixe a 0 et 90 deg sur le velo) mais u_q -> -i_q : la boucle i_q divergeait (walk 3 pts :
+	   consigne -3, i_q +16 en 150 ms, defaut 3). FOC_UQ_SIGN = -1 en build de banc (config.h), 1 sinon. */
+	arm_inv_park_q31(MS_FOC->u_d, FOC_UQ_SIGN * MS_FOC->u_q, &q31_u_alpha, &q31_u_beta, -sinevalue, cosinevalue);
 
 
 		if(q31_erps_counter<10000){

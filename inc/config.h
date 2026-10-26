@@ -144,6 +144,7 @@
 #define CAP_N 128                // periodes PWM capturees apres MOE = 1 (~7,8 ms a 16,5 kHz)
 #define CAP_SAT(v) ((int8_t)((v) > 127 ? 127 : ((v) < -127 ? -127 : (v))))
 #define PRECHARGE_MAX_MS 5       // precharge des bootstraps reglable par CAN de 0 a 5 ms
+#define FOC_UQ_SIGN (-1)         // correctif F5 : u_q -> +i_q (voir FOC.c, FOC_calculation)
 #define PH_COUNTS_PER_A_X100_R35 733
 #ifndef CURRENT_SIGN
 #error "build banc : CURRENT_SIGN doit etre passe explicitement (CURRENT_SIGN=-1 ou 1), c'est une hypothese a verifier en A5/A6"
@@ -154,6 +155,10 @@
    Hypothese a verifier au banc (A5 vecteur fixe, A6 premier run) ; hors build banc, comportement EBiCS inchange. */
 #ifndef CURRENT_SIGN
 #define CURRENT_SIGN 1
+#endif
+/* Signe de u_q a l'entree de l'inverse de Park (correctif F5) : -1 en build de banc AOCI, comportement EBiCS inchange sinon */
+#ifndef FOC_UQ_SIGN
+#define FOC_UQ_SIGN 1
 #endif
 
 //---------------------------------------------------------------------
