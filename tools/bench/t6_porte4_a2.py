@@ -20,8 +20,9 @@ REF = {PAGE_CFG: ("page_0803F000.bin", 2048), PAGE_HALL: ("hall_0803B000.bin", 2
 ATTENDU = {"MP.phase_current_max": 12, "MP.voltage_min": 1064, "MP.battery_current_max": 2000, "MP.gear_ratio": 38,
            "MP.walk_assist_current": 30, "MP.reverse": -1, "PI_iq.limit_output": 1500}
 AUTRES = ["safety_fault_code_latched", "boot_reset_flags", "ui_8_PWM_ON_Flag", "bench_ol_enable", "bench_ol_active",
-          "MP.MagicNumber"]
+          "MP.MagicNumber", "offset_cal_ph[0]", "offset_cal_ph[1]", "offset_cal_ph[2]", "bat_current_offset"]
 SIGNES = {"MP.voltage_min", "MP.reverse"}
+IOFF = {"ph1 (ADC2)": 0x40013C14, "ph2 (ADC1)": 0x40012814, "ph3 (ADC0)": 0x40012414}
 
 
 def sha(b):
@@ -81,6 +82,7 @@ with ConnectHelper.session_with_chosen_probe(target_override="stm32f103rc", conn
         ref = open(os.path.join(OUT, nom), "rb").read()
         print(f"{adr:#010x} ({n} o) SHA-256 {sha(b)[:16]}... -> {'inchangee' if b == ref else 'MODIFIEE'} par rapport a {nom}")
     v = lire(t, syms)
+    ioff = {k: t.read32(a) & 0xFFF for k, a in IOFF.items()}
 for e, att in ATTENDU.items():
     print(f"{e:28s} = {v[e]:6d}  attendu {att:6d}  {'OK' if v[e] == att else 'ECART'}")
 for e in AUTRES:
@@ -88,4 +90,9 @@ for e in AUTRES:
 f = v["boot_reset_flags"]
 print("cause du reset :", ", ".join(n for b, n in ((26, "broche"), (27, "mise sous tension"), (28, "logiciel"),
                                                    (29, "chien de garde"), (30, "chien de fenetre")) if f >> b & 1) or "aucune")
+cal = [v[f"offset_cal_ph[{i}]"] for i in range(3)]
+print(f"offsets bras bas ferme ph1/ph2/ph3 {cal} (plage 1920..2176), injectes {ioff}, batterie {v['bat_current_offset']}")
+if f >> 27 & 1 and not v["safety_fault_code_latched"]:
+    print("calibration :", "OK, offsets dans la plage et appliques" if all(abs(c - 2048) <= 128 for c in cal)
+          and list(ioff.values()) == cal else "ECART")
 print("BILAN MOE :", "0, OK" if m == 0 else "1, ALERTE")

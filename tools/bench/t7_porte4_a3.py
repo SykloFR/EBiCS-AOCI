@@ -4,7 +4,7 @@ Adresses RAM et points d'arret resolus depuis l'ELF ; seuls les registres du com
            (2) defaut injecte entre le test du verrou et POEN = 1 (point d'arret dans pwm_enable_safe) ;
            (3) garde ISR : POEN force a 1 avec un defaut verrouille ; (4) Default_Handler : POEN = 0 puis reset.
            Fin de serie : defaut 21 verrouille (reset logiciel) -> remise sous tension avant serie2.
-  serie2 : trip de phase : decalage de l'offset injecte de la phase 1 (registre IOFF0 de l'ADC2), 12 points (pas de
+  serie2 : trip de phase (MOTEUR DEBRANCHE) : decalage de l'offset injecte de la phase 1 (IOFF0 de l'ADC2), MOE = 0 puis MOE = 1 a u_d 0 ; 12 points (pas de
            coupure attendue) puis 20 points (coupure attendue, defaut 3). L'offset d'origine est restaure.
 Usage : python tools/bench/t7_porte4_a3.py ELF serie1|serie2"""
 import os, re, subprocess, sys, time
@@ -143,24 +143,41 @@ with ConnectHelper.session_with_chosen_probe(target_override="stm32f103rc", conn
                 and moe(t) == 0, f"cause reset {f:#x} (bit 28 = logiciel), defaut {rd(t, 'safety_fault_code_latched')}, MOE {moe(t)}")
 
     elif SERIE == "serie2":
+        # Porte 4 (26/10) : mesure par Rds(on) des MOSFET bas, trip evalue seulement MOE = 1. Moteur DEBRANCHE : l'outil
+        # vecteur fixe a u_d = 0 met MOE = 1 avec des rapports cycliques de 50 % sur les trois bras, sans courant possible.
         orig = t.read32(ADC2_IOFF0) & 0xFFF
         print(f"IOFF0 ADC2 (phase 1) = {orig}, ph1 au repos = {rd(t, 'i16_ph1_current')}")
         try:
-            t.write32(ADC2_IOFF0, orig - 12)
-            t.flush()
-            time.sleep(0.1)
-            ph = rd(t, "i16_ph1_current")
-            verdict("12 points : pas de coupure", rd(t, "safety_fault_code_latched") == 0,
-                    f"ph1 = {ph} (CURRENT_SIGN -1 : -12 attendu), defaut {rd(t, 'safety_fault_code_latched')}")
             t.write32(ADC2_IOFF0, orig - 20)
             t.flush()
             time.sleep(0.1)
-            verdict("20 points : coupure", rd(t, "safety_fault_code_latched") == 3 and moe(t) == 0,
-                    f"defaut {rd(t, 'safety_fault_code_latched')}, MOE {moe(t)}, etat ADC dyn {rd(t, 'MS.char_dyn_adc_state')}")
-        finally:
+            verdict("MOE = 0, 20 points : pas d'evaluation, pas de coupure", rd(t, "safety_fault_code_latched") == 0,
+                    f"ph1 = {rd(t, 'i16_ph1_current')}, defaut {rd(t, 'safety_fault_code_latched')}, MOE {moe(t)}")
             t.write32(ADC2_IOFF0, orig)
             t.flush()
-            print(f"IOFF0 restaure = {t.read32(ADC2_IOFF0) & 0xFFF}")
+            wr(t, "bench_ol_ud", 0); wr(t, "bench_ol_angle", 0); wr(t, "bench_ol_keepalive", 8000); wr(t, "bench_ol_enable", 1)
+            time.sleep(0.1)
+            ph0 = rd(t, "i16_ph1_current")
+            verdict("MOE = 1 a u_d = 0, sans defaut", moe(t) == 1 and rd(t, "safety_fault_code_latched") == 0,
+                    f"MOE {moe(t)}, ph1 = {ph0}, ph2 = {rd(t, 'i16_ph2_current')}, defaut {rd(t, 'safety_fault_code_latched')}")
+            t.write32(ADC2_IOFF0, orig - 12)
+            t.flush()
+            wr(t, "bench_ol_keepalive", 8000)
+            time.sleep(0.1)
+            ph = rd(t, "i16_ph1_current")
+            verdict("MOE = 1, 12 points : pas de coupure", rd(t, "safety_fault_code_latched") == 0 and moe(t) == 1,
+                    f"ph1 = {ph} (CURRENT_SIGN -1 : ~ -12 attendu), defaut {rd(t, 'safety_fault_code_latched')}")
+            t.write32(ADC2_IOFF0, orig - 20)
+            t.flush()
+            wr(t, "bench_ol_keepalive", 8000)
+            time.sleep(0.1)
+            verdict("MOE = 1, 20 points : coupure", rd(t, "safety_fault_code_latched") == 3 and moe(t) == 0,
+                    f"defaut {rd(t, 'safety_fault_code_latched')}, MOE {moe(t)}, etat ADC dyn {rd(t, 'MS.char_dyn_adc_state')}")
+        finally:
+            wr(t, "bench_ol_enable", 0)
+            t.write32(ADC2_IOFF0, orig)
+            t.flush()
+            print(f"IOFF0 restaure = {t.read32(ADC2_IOFF0) & 0xFFF}, MOE {moe(t)}")
         if rd(t, "safety_fault_code_latched"):                  # garde ISR rejouee avec ecriture effective (flush)
             t.write32(BDTR, t.read32(BDTR) | 0x8000)
             t.flush()
