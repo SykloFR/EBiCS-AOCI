@@ -260,30 +260,89 @@ static uint8_t wait_reg_adc_flag(void)
    releve sur la carte AOCI alimentee par la sonde seule : PA0 = 1951, valeur valide de l'origine : 1600..2300) */
 int32_t bat_current_offset = CAL_BAT_I_OFFSET;
 
-/* REVUE-PUISSANCE P8 : calibration des offsets de courant, moteur a l'arret et PWM coupee.
-   Moyenne de 256 echantillons de la conversion reguliere (DMA, 4 kHz) de chaque voie ; plage valide comme l'origine AOCI
-   (phases : 2048 +- 128 points ; batterie : 1600..2300). Hors plage -> faux, defaut FAULT_OFFSET (code 10 de l'origine).
-   Les offsets injectes (registres JOFR) remplacent les constantes M820 2012 / 2028 / 2020 (a verifier : moyenne mesuree
-   sur la carte AOCI sans puissance : PA5 2045, PA3 2050, PA2 2045). */
+/* PORTE 4 (26/10/2026) : vrai pendant la calibration des phases, ou MOE = 1 avec un seul MOSFET bas passant et l'offset
+   injecte a 0 : les valeurs lues ne sont pas des courants, l'ISR ne les passe pas au trip. */
+volatile uint8_t offset_cal_active = 0;
+volatile int16_t offset_cal_ph[3] = {0, 0, 0};   /* derniere mesure bras bas ferme (ph1, ph2, ph3), meme rejetee : lecture SWD */
+
+/* CHCTL2 (CCER) en marche : CH0..CH2 hauts actifs hauts, bas actifs bas (bas inverses), CH3 sans sortie, comme l'origine */
+#define CHCTL2_RUN 0x0DDDU
+
+/* PORTE 4 (26/10/2026) : offset d'une phase bras bas ferme, comme l'origine AOCI (FUN_0800b814). La carte mesure le courant
+   de phase par le Rds(on) des MOSFET bas : sans MOSFET bas passant, le noeud de phase flotte et l'ampli lit sa tension
+   (~2920 points mesures le 26/10, MOE = 0), pas un zero de courant.
+   MOE = 1 avec CHCTL2 = chctl2 : aucune sortie validee (CHxEN = CHxNEN = 0), donc etat de repos OSSR : OCx = CHxP = 0 (hauts
+   bloques), OCxN = CHxNP. CHxNP = 1 bloque le bas (driver actif bas), CHxNP = 0 le rend passant. Un seul interrupteur ferme :
+   aucun chemin de courant. 10 ms de stabilisation (origine : 10), puis 64 lectures du registre injecte brut (offset a 0), une
+   par periode reguliere (4 kHz). MOE = 0 AVANT de restaurer CHCTL2, quoi qu'il arrive. Moyenne dans *off, 0 si echec. */
+static uint8_t offset_cal_phase(uint32_t chctl2, uint32_t adc, int32_t *off)
+{
+    uint32_t s = 0;
+    uint8_t ok = 1;
+    adc_inserted_channel_offset_config(adc, ADC_INSERTED_CHANNEL_0, 0);
+    TIMER_CHCTL2(TIMER0) = chctl2;
+    __disable_irq();
+    if (safety_is_latched()) ok = 0;
+    else TIMER_CCHP(TIMER0) |= (uint32_t)TIMER_CCHP_POEN;
+    __enable_irq();
+    for (int i = 0; ok && i < 40; i++) {
+        reg_ADC_flag = 0;
+        if(!wait_reg_adc_flag()) ok = 0;
+    }
+    for (int i = 0; ok && i < 64; i++) {
+        reg_ADC_flag = 0;
+        if(!wait_reg_adc_flag()) ok = 0;
+        s += (uint16_t)adc_inserted_data_read(adc, ADC_INSERTED_CHANNEL_0);
+        fwdgt_counter_reload();
+    }
+    safety_pwm_off();
+    TIMER_CHCTL2(TIMER0) = CHCTL2_RUN;
+    if (safety_is_latched()) ok = 0;            /* defaut pose pendant la mesure (ISR, garde) : mesure rejetee */
+    *off = (int32_t)(s >> 6);
+    for (int i = 0; i < 40; i++) {              /* 10 ms MOE = 0 entre deux phases, comme l'origine */
+        reg_ADC_flag = 0;
+        if(!wait_reg_adc_flag()) break;
+    }
+    return ok;
+}
+
+/* REVUE-PUISSANCE P8, PORTE 4 : calibration des offsets de courant, moteur a l'arret, au demarrage.
+   Batterie (shunt) : moyenne de 256 conversions regulieres, sorties coupees, plage 1600..2300 comme l'origine.
+   Phases : bras bas de la phase mesuree ferme (offset_cal_phase), plage 2048 +- 128 comme l'origine (0x7801..0x87FF sur 16
+   lectures >> 3). Hors plage -> faux, defaut FAULT_OFFSET (code 10 de l'origine). En cas d'echec les offsets injectes
+   repartent a leurs valeurs de depart (adc_config) : la mesure reste fausse, mais MOE ne peut plus etre active (defaut 10).
+   Correspondance des voies (origine, CCER 0x880 / 0x808 / 0x088) : CH0 = PA2 (ph1, ADC2), CH1 = PA3 (ph2, ADC1),
+   CH2 = PA5 (ph3, ADC0). Le rotor doit etre immobile : un seul MOSFET bas ferme ne fait pas de circuit, mais un rotor qui
+   tourne pourrait debiter par la diode d'un autre bras bas. */
 static uint8_t calibrate_current_offsets(void)
 {
-    uint32_t s_bat = 0, s_ph3 = 0, s_ph2 = 0, s_ph1 = 0;
+    uint32_t s_bat = 0;
     for (int i = 0; i < 256; i++) {
         s_bat += adc_value[0];   /* PA0 courant batterie */
-        s_ph3 += adc_value[4];   /* PA5 phase 3 */
-        s_ph2 += adc_value[8];   /* PA3 phase 2 */
-        s_ph1 += adc_value[7];   /* PA2 phase 1 */
         reg_ADC_flag = 0;
         if(!wait_reg_adc_flag()) return 0;
         fwdgt_counter_reload();
     }
-    int32_t o_bat = (int32_t)(s_bat >> 8), o_ph3 = (int32_t)(s_ph3 >> 8), o_ph2 = (int32_t)(s_ph2 >> 8), o_ph1 = (int32_t)(s_ph1 >> 8);
+    int32_t o_bat = (int32_t)(s_bat >> 8), o_ph1 = 0, o_ph2 = 0, o_ph3 = 0;
     if (o_bat < 1600 || o_bat > 2300) return 0;
-    if (abs(o_ph3 - 2048) > 128 || abs(o_ph2 - 2048) > 128 || abs(o_ph1 - 2048) > 128) return 0;
+
+    offset_cal_active = 1;
+    uint8_t ok = offset_cal_phase(0x0880U, ADC2, &o_ph1)   /* bas CH0 passant, PA2 */
+              && offset_cal_phase(0x0808U, ADC1, &o_ph2)   /* bas CH1 passant, PA3 */
+              && offset_cal_phase(0x0088U, ADC0, &o_ph3);  /* bas CH2 passant, PA5 */
+    offset_cal_ph[0] = (int16_t)o_ph1; offset_cal_ph[1] = (int16_t)o_ph2; offset_cal_ph[2] = (int16_t)o_ph3;
+    if (!ok || abs(o_ph3 - 2048) > 128 || abs(o_ph2 - 2048) > 128 || abs(o_ph1 - 2048) > 128) {
+        adc_inserted_channel_offset_config(ADC0, ADC_INSERTED_CHANNEL_0, 2045);
+        adc_inserted_channel_offset_config(ADC1, ADC_INSERTED_CHANNEL_0, 2050);
+        adc_inserted_channel_offset_config(ADC2, ADC_INSERTED_CHANNEL_0, 2045);
+        offset_cal_active = 0;
+        return 0;
+    }
     bat_current_offset = o_bat;
     adc_inserted_channel_offset_config(ADC0, ADC_INSERTED_CHANNEL_0, (uint16_t)o_ph3);
     adc_inserted_channel_offset_config(ADC1, ADC_INSERTED_CHANNEL_0, (uint16_t)o_ph2);
     adc_inserted_channel_offset_config(ADC2, ADC_INSERTED_CHANNEL_0, (uint16_t)o_ph1);
+    offset_cal_active = 0;
     return 1;
 }
 
@@ -455,7 +514,11 @@ int main(void)
     torque_offset_correction=740-((torque_offset_correction*3300)>>12);
   //  while((adc_value[1])>3000);//safety for bricked throttle
 
-    /* REVUE-PUISSANCE P8 : offsets des capteurs de courant mesures a chaque demarrage, sorties coupees (voir calibrate_current_offsets) */
+    /* REVUE-PUISSANCE P8 : offsets des capteurs de courant mesures a chaque demarrage (voir calibrate_current_offsets).
+       PORTE 4 (26/10/2026) : le defaut 10 est le premier possible. Avant, le trip tournait des la mise en route de l'ADC avec les
+       offsets de depart et MOE = 0 : il verrouillait le defaut 3 et la calibration etait sautee (diagnostic trompeur). Le trip
+       n'evalue plus les courants que MOE = 1, hors calibration. Pas de calibration avec un defaut deja verrouille (21 apres un
+       reset logiciel, 20) : elle exige MOE = 1. */
     if(!safety_is_latched() && !calibrate_current_offsets()){
     	safety_fault(FAULT_OFFSET);
     }
@@ -1658,8 +1721,12 @@ void ADC0_1_IRQHandler(void)
 
     /* A1 porte 4 (revue Fangyan, point 5) : surintensite verifiee APRES reconstruction, a chaque periode PWM, avant tout calcul.
        ph1 et ph2 sont valides dans les trois etats ; ph3 brute peut etre fausse en etat 1 (phase C la plus chargee) et n'y est
-       pas reconstruite : la troisieme phase est donc toujours deduite des deux autres (somme des courants nulle). */
-    safety_check_phase_currents(i16_ph1_current, i16_ph2_current, (int16_t)(-(i16_ph1_current + i16_ph2_current)));
+       pas reconstruite : la troisieme phase est donc toujours deduite des deux autres (somme des courants nulle).
+       PORTE 4 (26/10/2026) : mesure par Rds(on) des MOSFET bas, valable seulement quand le pont commute (echantillon au sommet,
+       bras bas fermes). MOE = 0 : noeuds de phase flottants, la valeur lue n'est pas un courant (-870 points le 26/10, defaut 3
+       verrouille a chaque demarrage) et aucun courant ne peut passer par le pont. Calibration : offset injecte a 0. */
+    if((TIMER_CCHP(TIMER0) & TIMER_CCHP_POEN) && !offset_cal_active)
+    	safety_check_phase_currents(i16_ph1_current, i16_ph2_current, (int16_t)(-(i16_ph1_current + i16_ph2_current)));
     /* garde : quel que soit le chemin qui aurait remis POEN a 1, un defaut verrouille recoupe dans la periode */
     if(safety_is_latched()) safety_pwm_off();
 
