@@ -110,6 +110,10 @@ pes = func("pwm_enable_safe", 70) if "pwm_enable_safe" in syms else ""
 print("pwm_enable_safe lit bench_precharge_ms :", "OK" if lit_adresse(pes, "bench_precharge_ms") else "A VERIFIER (inline ?)")
 print("pwm_enable_safe ecrit CHCTL2 (TIMER0 0x40012c20) :",
       "OK" if re.search(r"\.word\s+0x40012c(00|20)\b", pes) else "A VERIFIER")
+section("Correctif F4 : retrait du mode commun des trois voies (26/10/2026)")
+# division par 3 dans l'ISR : sdiv par une constante 3, ou multiplication par l'inverse (0x55555556)
+print("division par 3 dans ADC0_1_IRQHandler :",
+      "OK" if re.search(r"0x55555556|sdiv", isr) else "A VERIFIER")
 if "offset_cal_pont_50" in syms:
     print("calibrate_current_offsets appelle offset_cal_pont_50 :", "OK" if "<offset_cal_pont_50>" in cal else "A VERIFIER")
 else:

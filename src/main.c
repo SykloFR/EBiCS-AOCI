@@ -1865,6 +1865,17 @@ void ADC0_1_IRQHandler(void)
     	if(cap_trip == 0xFF && safety_is_latched()) cap_trip = cap_n;
     	cap_n++;
     }
+    /* PORTE 4, correctif F4 (26/10/2026) : sur le controleur du velo, les trois voies portent un bruit commun (capture du
+       demarrage a u_d 0 : mode commun -19..+14 pts, ecart-type 5, part propre a chaque phase <= 5 pts, somme des trois
+       jusqu'a 57 pts alors qu'un vrai courant est de somme nulle). La reconstruction ph3 = -(ph1 + ph2) le doublait (41 pts)
+       et declenchait le trip a vide ; il faussait aussi i_d / i_q. On retire la moyenne des trois voies. Valable seulement
+       si les trois lectures sont justes : en build de banc, CCR <= ~1738 < DYNAMIC_ADC_THRESHOLD (_U_MAX = U_MAX_BENCH,
+       u_d de l'outil <= BENCH_OL_UD_MAX), le declenchement reste a TRIGGER_DEFAULT, bras bas fermes pour les trois. Hors
+       calibration (valeurs brutes). La capture ci-dessus garde les valeurs avant correction. */
+    if(!offset_cal_active){
+    	int16_t mc = (int16_t)((i16_ph1_current + i16_ph2_current + i16_ph3_current) / 3);
+    	i16_ph1_current -= mc; i16_ph2_current -= mc; i16_ph3_current -= mc;
+    }
 #endif
 
 
