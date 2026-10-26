@@ -146,6 +146,7 @@
 #define CAP_N 128                // periodes PWM capturees apres MOE = 1 (~7,8 ms a 16,5 kHz)
 #define CAP_SAT(v) ((int8_t)((v) > 127 ? 127 : ((v) < -127 ? -127 : (v))))
 #define PRECHARGE_MAX_MS 5       // precharge des bootstraps reglable par CAN de 0 a 5 ms
+#define HJ_N 64                  // journal des fronts Hall : nombre de fronts gardes (voir main.c, TIMER2_IRQHandler)
 #define PH_COUNTS_PER_A_X100_R35 733
 #ifndef CURRENT_SIGN
 #error "build banc : CURRENT_SIGN doit etre passe explicitement (CURRENT_SIGN=-1 ou 1), c'est une hypothese a verifier en A5/A6"

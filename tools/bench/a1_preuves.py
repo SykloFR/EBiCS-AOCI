@@ -115,6 +115,12 @@ section("Correctif F4 : retrait du mode commun des trois voies (26/10/2026)")
 # division par 3 dans l'ISR : sdiv par une constante 3, ou multiplication par l'inverse (0x55555556)
 print("division par 3 dans ADC0_1_IRQHandler :",
       "OK" if re.search(r"0x55555556|sdiv", isr) else "A VERIFIER")
+section("Journal des fronts Hall (26/10/2026)")
+t2 = func("TIMER2_IRQHandler", 0)
+print("TIMER2_IRQHandler lit hj_gel et ecrit hj_case :",
+      "OK" if lit_adresse(t2, "hj_gel") and lit_adresse(t2, "hj_case") else "A VERIFIER")
+pd = func("pwm_disable", 0) if "pwm_disable" in syms else ""
+print("pwm_disable fige le journal (hj_gel) :", "OK" if lit_adresse(pd, "hj_gel") else "A VERIFIER (inline ?)")
 if "offset_cal_pont_50" in syms:
     print("calibrate_current_offsets appelle offset_cal_pont_50 :", "OK" if "<offset_cal_pont_50>" in cal else "A VERIFIER")
 else:

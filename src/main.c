@@ -303,6 +303,13 @@ volatile uint8_t cap_n = CAP_N;                   /* rang de la prochaine period
 volatile uint8_t cap_trip = 0xFF;                 /* periode ou le defaut verrouille est vu (une periode apres le trip) */
 volatile uint8_t cap_seq = 0;                     /* numero de la capture, incremente a chaque MOE = 1 */
 volatile uint8_t bench_precharge_ms = 0;
+/* PORTE 4, journal des fronts Hall (26/10/2026 : walk 5 pts sans chaine, le moteur vibre sans tourner, erps qui monte) :
+   les HJ_N derniers fronts vus par TIMER2_IRQHandler pendant que le pont est actif (cas EBiCS xy, duree depuis le front
+   precedent en ticks de 2 us, mode 6-step, sens detecte, angle de secteur retenu). Remis a zero a chaque MOE = 1
+   (pwm_enable_safe), fige au defaut verrouille ou a l'arret du pont (pwm_disable). Relu par CAN (E20A). */
+volatile uint8_t hj_case[HJ_N], hj_fl[HJ_N], hj_ang[HJ_N];
+volatile uint16_t hj_tics[HJ_N];
+volatile uint8_t hj_idx = 0, hj_n = 0, hj_gel = 1, hj_seq = 0;
 #endif
 
 static void suivre_hall(void)
@@ -1502,6 +1509,19 @@ void TIMER2_IRQHandler(void)
             			break;
 
             		} // end case
+#ifdef BENCH_BUILD
+            		/* journal des fronts Hall (diagnostic du demarrage) : fige des qu'un defaut est verrouille */
+            		if(safety_is_latched()) hj_gel = 1;
+            		if(!hj_gel){
+            			hj_case[hj_idx] = ui8_hall_case;
+            			hj_tics[hj_idx] = ui16_timertics;
+            			hj_fl[hj_idx] = (uint8_t)((ui8_6step_flag ? 1u : 0u) | (i8_recent_rotor_direction > 0 ? 2u : 0u)
+            			                | (i8_recent_rotor_direction < 0 ? 4u : 0u) | (ui_8_PWM_ON_Flag ? 8u : 0u));
+            			hj_ang[hj_idx] = (uint8_t)((uint32_t)q31_rotorposition_hall >> 24);
+            			hj_idx = (uint8_t)((hj_idx + 1u) % HJ_N);
+            			if(hj_n < HJ_N) hj_n++;
+            		}
+#endif
 
             		if(MS.angle_est){
             			q31_PLL_error=q31_rotorposition_PLL-q31_rotorposition_hall;
@@ -1998,6 +2018,7 @@ static uint8_t pwm_enable_safe(void)
 		   offset_cal_phase avec les trois bras. Moteur arrete : aucun courant ; s'il tourne, le trip reste actif. */
 		if(bench_precharge_ms) TIMER_CHCTL2(TIMER0) = 0U;
 		cap_trip = 0xFF; cap_n = 0; cap_seq++;
+		hj_idx = 0; hj_n = 0; hj_seq++; hj_gel = 0;
 	}
 #endif
 	if(ok) TIMER_CCHP(TIMER0) |= (uint32_t)TIMER_CCHP_POEN;
@@ -2023,6 +2044,9 @@ static void pwm_disable(void)
 {
 	safety_pwm_off();
 	ui_8_PWM_ON_Flag=0;
+#ifdef BENCH_BUILD
+	hj_gel = 1;                                   /* journal des fronts Hall fige a l'arret du pont */
+#endif
 	timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_0,_T>>1);
 	timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_1,_T>>1);
 	timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_2,_T>>1);
