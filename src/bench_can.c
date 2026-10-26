@@ -199,10 +199,15 @@ void bench_can_poll(void)
         bench_trame_t* t = &trames[prochaine];
         prochaine = (uint8_t)((prochaine + 1u) % NB_TRAMES);
         if ((uint32_t)(now - t->dernier) < t->periode_ms) continue;
-        t->dernier = now;
         uint32_t ts = CAN_TSTAT(CAN0);
         uint8_t libres = (uint8_t)(((ts & CAN_TSTAT_TME0) ? 1 : 0) + ((ts & CAN_TSTAT_TME1) ? 1 : 0) + ((ts & CAN_TSTAT_TME2) ? 1 : 0));
-        if (libres < 2) { lost++; return; }              /* jamais d'attente : la boîte reste aux trames de l'afficheur */
+        if (libres < 2) {                                /* jamais d'attente : une boîte reste aux trames de l'afficheur */
+            /* trame gardée due et réessayée aux tours suivants ; perdue seulement après une période entière de retard
+               (26/10 : la marquer envoyée faisait sauter E201-E205 à chaque fois, dues en même temps que E200) */
+            if ((uint32_t)(now - t->dernier) >= 2u * t->periode_ms) { t->dernier = now; lost++; }
+            return;
+        }
+        t->dernier = now;
         uint32_t c0 = DWT->CYCCNT;
         can_trasnmit_message_struct m;
         m.tx_sfid = 0; m.tx_efid = BENCH_ID(t->idx, t->sub); m.tx_ff = CAN_FF_EXTENDED; m.tx_ft = CAN_FT_DATA;
