@@ -1,6 +1,6 @@
 """Porte 4, A5 sans codeur : outil vecteur fixe en boucle ouverte (build de banc), MOE = 1 pendant l'essai.
 Rampe de u_d par paliers a angle fixe, lecture des courants a chaque palier, arret au premier seuil atteint :
-  moyenne d'une phase >= SEUIL pts, plus de 20 % des echantillons du palier >= 15 pts (le bruit de mesure fait des pics
+  moyenne d'une phase >= SEUIL pts, plus de 20 % des echantillons du palier >= ECH_MAX pts (le bruit de mesure fait des pics
   isoles a 15-16 pts, A4 ; un pic court reel est couvert par le trip du firmware, 16 pts sur 6 periodes),
   courant batterie >= 400 mA, defaut verrouille ou MOE retombe.
 L'outil est arrete dans tous les cas (bench_ol_enable = 0) ; sans rafraichissement, il s'arrete seul en 2 s (keepalive).
@@ -17,7 +17,9 @@ PAS = int(sys.argv[3]) if len(sys.argv) > 3 else 2
 SEUIL = int(sys.argv[4]) if len(sys.argv) > 4 else 10
 ANGLE = round(float(sys.argv[5]) / 360 * 2**32) if len(sys.argv) > 5 else 0
 ANGLE = ANGLE - 2**32 if ANGLE >= 2**31 else ANGLE
-PALIER_S, ECH_MAX, IBAT_MAX = 0.5, 15, 400
+# ECH_MAX : 25 pts depuis le 26/10 (cartes bien reliees, MOE = 1, u_d 0 : ecart-type 5-6 pts bruts, pics isoles a 27 ;
+# ph1 reconstruite -(ph2+ph3) en etat dynamique 2 : ecart-type ~11). Le garde-fou reste la moyenne SEUIL et le trip firmware.
+PALIER_S, ECH_MAX, IBAT_MAX = 0.5, 25, 400
 BDTR = 0x40012C44
 V = ["safety_fault_code_latched", "ui_8_PWM_ON_Flag", "bench_ol_enable", "bench_ol_active", "bench_ol_keepalive",
      "bench_ol_ud", "bench_ol_angle", "i16_ph1_current", "i16_ph2_current", "i16_ph3_current", "MS.i_d", "MS.i_q",
