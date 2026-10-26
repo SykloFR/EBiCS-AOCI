@@ -62,6 +62,10 @@ DEFS    += -DBENCH_GIT_HASH=0x$(GIT_HASH)u -DBENCH_GIT_DIRTY=$(GIT_DIRTY)
 BUILD   := $(BUILD)-banc
 AOCI_OUT = $(BUILD)/ebics_BANC_aoci_full.bin
 STACKFLAGS = -fstack-usage
+# bench_can.o embarque le hash git (trame E203) : toujours recompilé, sinon un build après commit garderait l'ancien hash
+$(BUILD)/src/bench_can.o: FORCE_BENCH_CAN
+.PHONY: FORCE_BENCH_CAN
+FORCE_BENCH_CAN:
 endif
 
 ifeq ($(OS),Windows_NT)
