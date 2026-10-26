@@ -70,11 +70,25 @@ class Pcan:
         self.can = can
         self.bus = can.Bus(interface="pcan", channel=canal, bitrate=250000)   # mode actif : émet et acquitte
 
+    # 26/10 (vélo) : le CANable est passé en bus-off pendant l'attente de la mise sous tension et l'outil s'est arrêté
+    # après l'accord, laissant le bootloader en attente. Un bus-off réinitialise maintenant le canal, sans arrêter l'outil.
+    def _reprendre(self, ex):
+        print(f"   CANable : {ex} -> réinitialisation du canal", flush=True)
+        self.bus.reset()
+        time.sleep(0.05)
+
     def envoyer(self, ident, data):
-        self.bus.send(self.can.Message(arbitration_id=ident, data=bytes(data), is_extended_id=True))
+        try:
+            self.bus.send(self.can.Message(arbitration_id=ident, data=bytes(data), is_extended_id=True))
+        except self.can.CanError as ex:
+            self._reprendre(ex)
 
     def recevoir(self, timeout):
-        m = self.bus.recv(timeout)
+        try:
+            m = self.bus.recv(timeout)
+        except self.can.CanError as ex:
+            self._reprendre(ex)
+            return None
         return (m.arbitration_id, bytes(m.data)) if m is not None and m.is_extended_id and not m.is_error_frame else None
 
     def fermer(self):
