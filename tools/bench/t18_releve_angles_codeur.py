@@ -11,6 +11,7 @@ Arrêts automatiques : défaut ou MOE retombé, calibration non faite ou état H
 >= 400 mA, aucune transition (le rotor ne suit pas). L'outil est toujours arrêté à la fin (OL_STOP, puis heartbeat coupé).
 
 Usage : python tools/bench/t18_releve_angles_codeur.py SORTIE_PREFIXE [--ud 40] [--pas 2] [--tours 2] [--dt 0.04]
+                [--entete inc/bench_hall_angles.h]   (écrit l'en-tête des angles si le verdict est OK)
         python tools/bench/t18_releve_angles_codeur.py SORTIE_PREFIXE --analyser FICHIER.csv   (analyse hors ligne)"""
 import argparse, csv, json, os, sys, time
 sys.path.insert(0, os.path.dirname(__file__))
@@ -138,6 +139,7 @@ def main():
     ap.add_argument("--tours", type=float, default=2.0)
     ap.add_argument("--dt", type=float, default=0.04)
     ap.add_argument("--analyser")
+    ap.add_argument("--entete", help="écrire inc/bench_hall_angles.h si le verdict est OK")
     a = ap.parse_args()
     if a.analyser:
         with open(a.analyser, encoding="utf-8") as f:
@@ -152,6 +154,19 @@ def main():
     r["arret_anticipe"] = arret
     with open(a.prefixe + ".json", "w", encoding="utf-8") as f:
         json.dump(r, f, ensure_ascii=False, indent=1)
+    if a.entete:
+        if not str(r.get("verdict", "")).startswith("OK"):
+            sys.exit(f"en-tête NON écrit : verdict {r.get('verdict')}")
+        q = r["q31"]
+        lignes_h = ["/* Angles du codeur relevés sur le moteur monté (A5), écrits par tools/bench/t18_releve_angles_codeur.py.",
+                    f"   Source : {os.path.basename(a.prefixe)}.json. Numérotation EBiCS (PC6 = bit 0). Ne pas éditer à la main. */",
+                    "#ifndef BENCH_HALL_ANGLES_H_", "#define BENCH_HALL_ANGLES_H_", "#define BENCH_HALL_MESURE 1",
+                    f"#define BENCH_HALL_ORDER ({r['i32_hall_order']})"]
+        lignes_h += [f"#define BENCH_HALL_{n[5:]} ({q[n]})   /* {r['angles'][n]['angle']} deg */" for n in NOMS]
+        lignes_h += ["#endif", ""]
+        with open(a.entete, "w", encoding="utf-8", newline="\n") as f:
+            f.write("\n".join(lignes_h))
+        print(f"en-tête écrit : {a.entete}")
     print(json.dumps(r, ensure_ascii=False, indent=1))
 
 

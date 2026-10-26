@@ -4,6 +4,7 @@
  * T1 : télémétrie (émission). T2 : commandes du PC de banc, lues dans la boucle principale (aucune interruption) :
  *   0x1DF0E000 ESTOP (défaut 31 verrouillé), 0x1DF0E001 HEARTBEAT (20 Hz attendus), 0x1DF0E002 CMD [opcode, cmd_seq, ...] :
  *   0x10 OL_SET (angle u16 = deg × 65536 / 360, u_d u8) lance ou règle l'outil vecteur fixe, 0x11 OL_STOP.
+ *   0x20 WALK_START (ilim u8, pts, plafonné à BENCH_WALK_ILIM_MAX), 0x21 WALK_STOP (T3, home trainer).
  *   Réponse E206 : seq, opcode, cmd_seq, statut. Voir bench_can.c pour les règles de sécurité.
  * Nœud source 0x1E (contrôleur en mode banc), cible 0x1D (PC de banc), op 0 : ID = 0x1EE8 << 16 | index << 8 | sub.
  * Priorité la plus basse du bus (11 bits de tête 0x77C) ; ni 0x12, ni 0x13, ni 0x1F : le bootloader et l'afficheur
@@ -20,6 +21,8 @@
 #define BENCH_CAN_VERSION 1u
 
 extern volatile uint32_t bench_ms;                  /* incrémenté par SysTick (1 kHz) */
+extern volatile uint8_t bench_walk;                 /* walk assist lancé par CAN (WALK_START), lu par update_setpoint() */
+extern volatile uint8_t bench_walk_ilim;            /* consigne walk, pts, <= BENCH_WALK_ILIM_MAX */
 
 void bench_can_init(void);                          /* après can_networking_init() */
 void bench_can_sample(int16_t i1, int16_t i2, int16_t i3);  /* 4 kHz, boucle principale (reg_ADC_processing) */

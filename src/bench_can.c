@@ -9,7 +9,8 @@
  *   E100 20 Hz  ph1, ph2, ph3 efficaces (u16, 0,1 pt) et crête (u8, pt, saturé) sur 50 ms à 4 kHz
  *   E101 20 Hz  Vbat (u16, 0,01 V), Ibat (i16, 0,01 A), Vbat brute (u16, pt), SOC (u8, %)
  *   E102 20 Hz  vitesse (u16, 0,01 km/h), erps (u16), cadence (u8, tr/min), couple brut (u16, mV)
- *   E103 20 Hz  couple filtré (u16), niveau (u8), walk (u8), consigne amont i_q_setpoint_temp (i16, pts), ilim (u8, pts)
+ *   E103 20 Hz  couple filtré (u16), niveau (u8), walk par CAN (u8), consigne amont i_q_setpoint_temp (i16, pts),
+ *               ilim du walk (u8, pts)
  *   E200 10 Hz  défaut (u8), défaut banc (u8, 0 en T1), état (b0 MOE, b1 PWM_ON, b2 outil), Hall brut (u8),
  *               half_rotation_counter (u16), cause du reset (u8, RCU_RSTSCK >> 24)
  *   E201 10 Hz  T contrôleur (i16, °C), T moteur (i16, 0x7FFF = non mesurée : PB0 non lue), ADC PB1 (u16), pile (u8, 0xFF = non mesurée)
@@ -21,7 +22,8 @@
  *               faite (MOE autorisé), b3 roue arrêtée (Hall stable 50 ms et vitesse nulle), b4 état Hall valide 1 à 6)
  *   E206  sur commande : opcode (u8), cmd_seq (u8), statut (u8 : 0 accepté, 1 refusé sans heartbeat depuis 500 ms,
  *               2 refusé défaut verrouillé, 3 refusé frein ou demande d'assistance, 4 commande invalide,
- *               5 refusé offsets non calibrés : roue jamais arrêtée depuis le démarrage)
+ *               5 refusé offsets non calibrés : roue jamais arrêtée depuis le démarrage, 6 refusé angles du codeur non
+ *               relevés (bench_hall_angles.h absent) ou état Hall invalide, 7 refusé : autre essai en cours (outil / walk))
  *
  * Commandes (T2), reçues par 2 filtres en liste exacte vers la FIFO0, lues ici depuis la boucle principale (aucune
  * interruption ajoutée). Règles :
@@ -32,6 +34,9 @@
  *   - OL_SET (0x10, angle u16, u_d u8) : refusé sans heartbeat continu depuis 500 ms, avec un défaut verrouillé, le frein
  *     serré ou une demande d'assistance ; u_d borné à BENCH_OL_UD_MAX ici et dans bench_ol_vector(). OL_STOP (0x11) :
  *     arrêt de l'outil, sans défaut. L'outil piloté par SWD (keepalive 8000) n'est pas concerné par le heartbeat.
+ *   - WALK_START (0x20, ilim u8) : mêmes refus que OL_SET, plus angles du codeur relevés et état Hall valide ; ilim borné
+ *     à BENCH_WALK_ILIM_MAX et PH_CURRENT_MAX. Seule assistance du build de banc (update_setpoint). Perte du heartbeat
+ *     pendant le walk : défaut 30. WALK_STOP (0x21) : consigne à 0, sans défaut. ESTOP coupe aussi le walk.
  */
 #include "bench_can.h"
 
@@ -40,6 +45,9 @@
 #include "config.h"
 #include "FOC.h"
 #include "safety.h"
+#if __has_include("bench_hall_angles.h")
+#include "bench_hall_angles.h"          /* angles du codeur relevés (A5) : définit BENCH_HALL_MESURE */
+#endif
 
 #ifndef BENCH_GIT_HASH
 #define BENCH_GIT_HASH 0u
@@ -81,8 +89,11 @@ volatile uint32_t bench_ms = 0;
 #define OL_KEEPALIVE_CAN 1200u                           /* 300 ms à 4 kHz */
 #define OP_OL_SET  0x10u
 #define OP_OL_STOP 0x11u
+#define OP_WALK_START 0x20u
+#define OP_WALK_STOP  0x21u
 
 static uint8_t hb_vu = 0, ol_par_can = 0, defaut_banc = 0, rx_perdues = 0;
+volatile uint8_t bench_walk = 0, bench_walk_ilim = 0;
 static uint32_t hb_dernier = 0, hb_debut = 0;
 static uint8_t ack_attente = 0, ack_op = 0, ack_seq = 0, ack_statut = 0, ack_tx_seq = 0;
 
@@ -167,7 +178,7 @@ static void commande(const can_receive_message_struct* m, uint32_t now)
     if (m->rx_ff != CAN_FF_EXTENDED) return;
     if (m->rx_efid == ID_ESTOP) {
         safety_fault(FAULT_BENCH_ESTOP);                 /* MOE = 0 d'abord, puis verrou */
-        bench_ol_enable = 0; ol_par_can = 0;
+        bench_ol_enable = 0; ol_par_can = 0; bench_walk = 0; bench_walk_ilim = 0;
         if (!defaut_banc) defaut_banc = FAULT_BENCH_ESTOP;
         repondre(0xFF, 0, 0);
         return;
@@ -185,11 +196,34 @@ static void commande(const can_receive_message_struct* m, uint32_t now)
         repondre(op, seq, 0);
         return;
     }
-    if (op != OP_OL_SET || m->rx_dlen < 5) { repondre(op, seq, 4); return; }
+    if (op == OP_WALK_STOP) {
+        bench_walk = 0; bench_walk_ilim = 0;
+        repondre(op, seq, 0);
+        return;
+    }
+    if ((op != OP_OL_SET || m->rx_dlen < 5) && (op != OP_WALK_START || m->rx_dlen < 3)) { repondre(op, seq, 4); return; }
     if (safety_is_latched()) { repondre(op, seq, 2); return; }
     if (!offsets_valides) { repondre(op, seq, 5); return; }
     if (!hb_present(now) || (uint32_t)(now - hb_debut) < HB_ARMEMENT_MS) { repondre(op, seq, 1); return; }
-    if (MS.brake_active_flag || MS.i_q_setpoint) { repondre(op, seq, 3); return; }
+    if (MS.brake_active_flag || (op == OP_OL_SET && MS.i_q_setpoint)) { repondre(op, seq, 3); return; }
+    if (op == OP_WALK_START) {
+        uint32_t h = (GPIO_ISTAT(GPIOC) >> 6) & 0x07u;
+#ifdef BENCH_HALL_MESURE
+        uint8_t angles = 1;
+#else
+        uint8_t angles = 0;
+#endif
+        if (!angles || h == 0u || h == 7u) { repondre(op, seq, 6); return; }
+        if (bench_ol_enable || bench_ol_active) { repondre(op, seq, 7); return; }
+        uint8_t il = m->rx_data[2];
+        if (il > BENCH_WALK_ILIM_MAX) il = BENCH_WALK_ILIM_MAX;
+        if (il > PH_CURRENT_MAX) il = PH_CURRENT_MAX;
+        bench_walk_ilim = il;
+        bench_walk = 1;
+        repondre(op, seq, 0);
+        return;
+    }
+    if (bench_walk) { repondre(op, seq, 7); return; }
     uint16_t angle = (uint16_t)(m->rx_data[2] | (m->rx_data[3] << 8));
     uint8_t ud = m->rx_data[4] > BENCH_OL_UD_MAX ? BENCH_OL_UD_MAX : m->rx_data[4];
     bench_ol_angle = (q31_t)((uint32_t)angle << 16);    /* angle et u_d d'abord, activation ensuite */
@@ -213,9 +247,10 @@ static void recevoir(uint32_t now)
         commande(&m, now);
     }
     if (!bench_ol_enable && !bench_ol_active) ol_par_can = 0;   /* outil arrêté (keepalive, OL_STOP, défaut) */
-    if (ol_par_can && (uint32_t)(now - hb_dernier) > HB_TIMEOUT_MS) {
+    if (safety_is_latched()) { bench_walk = 0; bench_walk_ilim = 0; }
+    if ((ol_par_can || bench_walk) && (uint32_t)(now - hb_dernier) > HB_TIMEOUT_MS) {
         safety_fault(FAULT_BENCH_HEARTBEAT);             /* MOE = 0 d'abord, puis verrou */
-        bench_ol_enable = 0; ol_par_can = 0;
+        bench_ol_enable = 0; ol_par_can = 0; bench_walk = 0; bench_walk_ilim = 0;
         if (!defaut_banc) defaut_banc = FAULT_BENCH_HEARTBEAT;
     }
 }
@@ -239,7 +274,7 @@ static uint8_t remplir(const bench_trame_t* t, uint8_t* d)
     switch (((uint16_t)t->idx << 8) | t->sub) {
     case 0xE000:
         put16(d + 1, sat16(PI_iq.setpoint)); put16(d + 3, sat16(MS.i_q)); put16(d + 5, sat16(MS.i_d));
-        d[7] = (uint8_t)(moe() | (ui_8_PWM_ON_Flag ? 2u : 0u) | (MS.pushassist_flag ? 4u : 0u)
+        d[7] = (uint8_t)(moe() | (ui_8_PWM_ON_Flag ? 2u : 0u) | (bench_walk ? 4u : 0u)
                          | (MS.brake_active_flag ? 8u : 0u) | (hb_present(bench_ms) ? 0x10u : 0u) | (safety_is_latched() ? 0x20u : 0u)
                          | (bench_ol_active ? 0x40u : 0u) | (offsets_ok() ? 0x80u : 0u));
         return 8;
@@ -268,8 +303,8 @@ static uint8_t remplir(const bench_trame_t* t, uint8_t* d)
         put16(d + 6, (int32_t)usat16(MS.torque_on_crank));
         return 8;
     case 0xE103:
-        put16(d + 1, MS.torque_filtered); d[3] = MS.assist_level; d[4] = MS.pushassist_flag ? 1u : 0u;
-        put16(d + 5, sat16(MS.i_q_setpoint_temp)); d[7] = (uint8_t)MP.phase_current_max;
+        put16(d + 1, MS.torque_filtered); d[3] = MS.assist_level; d[4] = bench_walk;
+        put16(d + 5, sat16(MS.i_q_setpoint_temp)); d[7] = bench_walk_ilim;
         return 8;
     case 0xE200:
         d[1] = safety_fault_code_latched; d[2] = defaut_banc;

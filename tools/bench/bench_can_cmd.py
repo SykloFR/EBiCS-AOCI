@@ -2,10 +2,10 @@
 actif (il émet). À n'utiliser qu'avec le build de banc, moteur débranché ou rotor libre, alim limitée.
 
   Banc(canal).demarrer_heartbeat()  heartbeat 20 Hz dans un fil dédié (time.perf_counter)
-  .ol_set(angle_deg, ud) / .ol_stop() / .estop()   -> statut E206 (0 accepté, 1 sans heartbeat, 2 défaut, 3 frein/assist,
+  .ol_set(angle_deg, ud) / .ol_stop() / .walk_start(ilim) / .walk_stop() / .estop()   -> statut E206 (0 accepté, 1 sans heartbeat, 2 défaut, 3 frein/assist,
                                                        4 invalide), None si pas de réponse en 0,5 s
   .dernier[cle]                     dernières trames de télémétrie décodées (bench_can_decode.decode)
-  .fermer()                         OL_STOP puis arrêt du heartbeat ; appelé aussi en sortie de « with »
+  .fermer()                         WALK_STOP, OL_STOP puis arrêt du heartbeat ; appelé aussi en sortie de « with »
 
 Usage direct : python tools/bench/bench_can_cmd.py estop | ol-stop"""
 import os, sys, threading, time
@@ -15,9 +15,12 @@ from bench_can_decode import decode  # noqa: E402
 
 ID_ESTOP, ID_HB, ID_CMD = 0x1DF0E000, 0x1DF0E001, 0x1DF0E002
 OP_OL_SET, OP_OL_STOP = 0x10, 0x11
+OP_WALK_START, OP_WALK_STOP = 0x20, 0x21
 STATUTS = {0: "accepté", 1: "refusé : heartbeat absent ou < 500 ms", 2: "refusé : défaut verrouillé",
            3: "refusé : frein ou demande d'assistance", 4: "refusé : commande invalide",
-           5: "refusé : offsets non calibrés (roue jamais arrêtée)"}
+           5: "refusé : offsets non calibrés (roue jamais arrêtée)",
+           6: "refusé : angles du codeur non relevés ou état Hall invalide",
+           7: "refusé : autre essai en cours (outil vecteur fixe ou walk)"}
 
 
 class Banc:
@@ -83,11 +86,18 @@ class Banc:
     def ol_stop(self):
         return self._commande(OP_OL_STOP)
 
+    def walk_start(self, ilim_pts):
+        return self._commande(OP_WALK_START, bytes([max(0, min(255, int(ilim_pts)))]))
+
+    def walk_stop(self):
+        return self._commande(OP_WALK_STOP)
+
     def estop(self):
         self._envoyer(ID_ESTOP, b"\x00")
 
     def fermer(self):
         try:
+            self.walk_stop()
             self.ol_stop()
         finally:
             self.arreter_heartbeat()

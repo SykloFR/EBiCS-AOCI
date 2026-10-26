@@ -64,6 +64,9 @@ AOCI_OUT = $(BUILD)/ebics_BANC_aoci_full.bin
 STACKFLAGS = -fstack-usage
 # bench_can.o embarque le hash git (trame E203) : toujours recompilé, sinon un build après commit garderait l'ancien hash
 $(BUILD)/src/bench_can.o: FORCE_BENCH_CAN
+# main.o et bench_can.o lisent inc/bench_hall_angles.h par __has_include (angles relevés en A5) : make ne voit pas
+# l'apparition du fichier, on les recompile donc toujours ensemble (sinon walk autorisé avec les angles du M820)
+$(BUILD)/src/main.o: FORCE_BENCH_CAN
 .PHONY: FORCE_BENCH_CAN
 FORCE_BENCH_CAN:
 endif

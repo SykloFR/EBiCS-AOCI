@@ -30,7 +30,7 @@ def decode(cle, d):
     if cle == 0xE102:
         return dict(vitesse=u16(1) / 100, erps=u16(3), cadence=u8(5), couple_mV=u16(6))
     if cle == 0xE103:
-        return dict(couple_filtre=u16(1), niveau=u8(3), walk=u8(4), iq_amont=i16(5), ilim=u8(7))
+        return dict(couple_filtre=u16(1), niveau=u8(3), walk=u8(4), iq_amont=i16(5), walk_ilim=u8(7))
     if cle == 0xE200:
         return dict(defaut=u8(1), defaut_banc=u8(2), moe=d[3] & 1, pwm_on=d[3] >> 1 & 1, outil=d[3] >> 2 & 1,
                     hall_brut=u8(4), half_rot=u16(5), cause_reset=hex(u8(7)))

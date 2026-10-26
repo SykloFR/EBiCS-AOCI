@@ -132,6 +132,7 @@
 #define U_MAX_BENCH 1500L        // CCR max ~1738 : 252 ticks au sommet pour 180 necessaires (1640 ne laissait que 3 ticks de marge)
 #define BENCH_NO_EEPROM          // page 0x0803F000 ni lue ni ecrite : MP vient des macros ci-dessus (la page contient MP d'un ancien build)
 #define BENCH_OL_UD_MAX 60       // outil vecteur fixe : u_d plafonne a 60/2048 de Vbat (~0,7 V a 24 V)
+#define BENCH_WALK_ILIM_MAX 5    // home trainer (avis Fangyan 26/10) : walk assist par CAN plafonne a 5 pts (~1,6 A)
 #ifndef CURRENT_SIGN
 #error "build banc : CURRENT_SIGN doit etre passe explicitement (CURRENT_SIGN=-1 ou 1), c'est une hypothese a verifier en A5/A6"
 #endif

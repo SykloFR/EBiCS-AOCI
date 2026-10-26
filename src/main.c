@@ -164,6 +164,18 @@ q31_t q31_u_q_temp=0;
 //Hall51	2123622926
 //Hall45	1348142805
 
+#if defined(BENCH_BUILD) && __has_include("bench_hall_angles.h")
+/* PORTE 4 (A5) : angles du codeur releves sur le moteur monte par tools/bench/t18_releve_angles_codeur.py --entete.
+   Sans ce fichier, les angles restent ceux du M820 et le walk assist par CAN est refuse (statut 6). */
+#include "bench_hall_angles.h"
+int32_t i32_hall_order = BENCH_HALL_ORDER;
+int32_t Hall_13 = BENCH_HALL_13;
+int32_t Hall_32 = BENCH_HALL_32;
+int32_t Hall_26 = BENCH_HALL_26;
+int32_t Hall_64 = BENCH_HALL_64;
+int32_t Hall_45 = BENCH_HALL_45;
+int32_t Hall_51 = BENCH_HALL_51;
+#else
 int32_t i32_hall_order =-1;
 int32_t Hall_13 = 1825361405;
 int32_t Hall_32 = -1789569490;
@@ -171,6 +183,7 @@ int32_t Hall_26 = -966367405;
 int32_t Hall_64 = -322122295;
 int32_t Hall_45 = 381775140;
 int32_t Hall_51 = 1169185830;
+#endif
 
 const int32_t one_deg = 11930465; //one degree in 2^32 logic
 
@@ -2176,8 +2189,18 @@ uint16_t map_rezi(int32_t actual_value, int32_t actual_time, int32_t timeout, in
 uint16_t update_setpoint(void){
 
 				//calculate iq setpoint
+#ifdef BENCH_BUILD
+	            /* PORTE 4, home trainer (avis Fangyan 26/10) : seule assistance possible, le walk assist lance par CAN (WALK_START,
+	               heartbeat obligatoire, bench_can.c), plafonne a bench_walk_ilim <= BENCH_WALK_ILIM_MAX. Couple, accelerateur et
+	               bouton walk de l'afficheur sont ignores. Les reductions (batterie, temperature, sonde) s'appliquent ensuite. */
+	            if(1){                       /* les branches d'origine (else if ...) ne s'executent jamais en build de banc */
+	            	if(MS.brake_active_flag || !bench_walk) MS.i_q_setpoint_temp=0;
+	            	else MS.i_q_setpoint_temp=map(MS.Speedx100, (int32_t)MP.walk_assist_speed-200, MP.walk_assist_speed, bench_walk_ilim, 0);
+	            }
+#else
 	            //check brake with first priority
 	            if(MS.brake_active_flag)MS.i_q_setpoint_temp=0;
+#endif
 	            // check push assist active
 	            else if(MS.pushassist_flag){
 	            	MS.i_q_setpoint_temp=map(MS.Speedx100, (int32_t)MP.walk_assist_speed-200, MP.walk_assist_speed, MP.phase_current_max*MP.walk_assist_current/100, 0);
