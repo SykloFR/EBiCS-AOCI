@@ -18,8 +18,11 @@
  *   E203  1 Hz  + au démarrage (hello) : version (u16), hash git court (u32), macros banc (u8 : b0 BENCH_NO_EEPROM,
  *               b1 TEMP_SENSOR_REQUIRED, b2 CURRENT_SIGN < 0, b3 arbre git modifié)
  *   E204  1 Hz  PH_CURRENT_MAX, PH_CURRENT_TRIP, ilim (u8, pts), _U_MAX / 8 (u8), VOLTAGE_MIN (u16, pt), BENCH_OL_UD_MAX (u8)
- *   E205  1 Hz  offsets bras bas fermé ph1, ph2, ph3 (u16, pt), état (b0 dans la plage, b1 appliqués, b2 calibration
+ *   E205  1 Hz  offsets bras bas fermé ph1, ph2, ph3 (u16, pt), état (b0 dans la plage, b1 offsets pont à 50 % appliqués,
+ *               b2 calibration
  *               faite (MOE autorisé), b3 roue arrêtée (Hall stable 50 ms et vitesse nulle), b4 état Hall valide 1 à 6)
+ *   E207  1 Hz  correctifs F1 / F2 : variante 0x0803D800 (u8, 0xFF = vierge), offsets pont à 50 % ph1, ph2, ph3 (u16, pt,
+ *               0 = pas encore mesurés). E204 donne PH_CURRENT_MAX et PH_CURRENT_TRIP à l'échelle de la variante.
  *   E206  sur commande : opcode (u8), cmd_seq (u8), statut (u8 : 0 accepté, 1 refusé sans heartbeat depuis 500 ms,
  *               2 refusé défaut verrouillé, 3 refusé frein ou demande d'assistance, 4 commande invalide,
  *               5 refusé offsets non calibrés : roue jamais arrêtée depuis le démarrage, 6 refusé angles du codeur non
@@ -73,6 +76,9 @@ extern uint32_t boot_reset_flags;
 extern volatile int16_t offset_cal_ph[3];
 extern volatile uint8_t offsets_valides;
 extern volatile uint16_t hall_stable_ticks;
+extern volatile int16_t offset_pont_ph[3];
+extern volatile uint8_t bench_variante;
+extern uint8_t bench_ph_max, bench_walk_max;
 extern volatile uint8_t bench_ol_enable;
 extern volatile uint8_t bench_ol_active;
 extern volatile int16_t bench_ol_ud;
@@ -103,7 +109,7 @@ static bench_trame_t trames[] = {
     {0xE0, 0x00,   20, 0, 0}, {0xE0, 0x01,   20, 0, 0}, {0xE0, 0x02,   50, 0, 0},
     {0xE1, 0x00,   50, 0, 0}, {0xE1, 0x01,   50, 0, 0}, {0xE1, 0x02,   50, 0, 0}, {0xE1, 0x03, 50, 0, 0},
     {0xE2, 0x00,  100, 0, 0}, {0xE2, 0x01,  100, 0, 0}, {0xE2, 0x02,  100, 0, 0},
-    {0xE2, 0x03, 1000, 0, 0}, {0xE2, 0x04, 1000, 0, 0}, {0xE2, 0x05, 1000, 0, 0},
+    {0xE2, 0x03, 1000, 0, 0}, {0xE2, 0x04, 1000, 0, 0}, {0xE2, 0x05, 1000, 0, 0}, {0xE2, 0x07, 1000, 0, 0},
 };
 #define NB_TRAMES (sizeof(trames) / sizeof(trames[0]))
 
@@ -216,8 +222,8 @@ static void commande(const can_receive_message_struct* m, uint32_t now)
         if (!angles || h == 0u || h == 7u) { repondre(op, seq, 6); return; }
         if (bench_ol_enable || bench_ol_active) { repondre(op, seq, 7); return; }
         uint8_t il = m->rx_data[2];
-        if (il > BENCH_WALK_ILIM_MAX) il = BENCH_WALK_ILIM_MAX;
-        if (il > PH_CURRENT_MAX) il = PH_CURRENT_MAX;
+        if (il > bench_walk_max) il = bench_walk_max;      /* plafonds à l'échelle de la variante (correctif F2) */
+        if (il > bench_ph_max) il = bench_ph_max;
         bench_walk_ilim = il;
         bench_walk = 1;
         repondre(op, seq, 0);
@@ -327,7 +333,7 @@ static uint8_t remplir(const bench_trame_t* t, uint8_t* d)
         d[7] |= (TEMP_SENSOR_REQUIRED ? 2u : 0u) | (CURRENT_SIGN < 0 ? 4u : 0u) | (BENCH_GIT_DIRTY ? 8u : 0u);
         return 8;
     case 0xE204:
-        d[1] = PH_CURRENT_MAX; d[2] = PH_CURRENT_TRIP; d[3] = (uint8_t)MP.phase_current_max; d[4] = (uint8_t)(_U_MAX / 8);
+        d[1] = bench_ph_max; d[2] = (uint8_t)safety_ph_trip; d[3] = (uint8_t)MP.phase_current_max; d[4] = (uint8_t)(_U_MAX / 8);
         put16(d + 5, VOLTAGE_MIN); d[7] = BENCH_OL_UD_MAX;
         return 8;
     case 0xE205:
@@ -335,11 +341,15 @@ static uint8_t remplir(const bench_trame_t* t, uint8_t* d)
         {
             uint32_t h = (GPIO_ISTAT(GPIOC) >> 6) & 0x07u;
             d[7] = (uint8_t)(offsets_ok()
-                             | ((ADC_IOFF0(ADC2) & 0xFFFu) == (uint32_t)offset_cal_ph[0] ? 2u : 0u)
+                             | ((ADC_IOFF0(ADC2) & 0xFFFu) == (uint32_t)offset_pont_ph[0] ? 2u : 0u)
                              | (offsets_valides ? 4u : 0u)
                              | (hall_stable_ticks >= 200u && MS.Speedx100 == 0 ? 8u : 0u)
                              | (h != 0u && h != 7u ? 0x10u : 0u));
         }
+        return 8;
+    case 0xE207:
+        d[1] = bench_variante;
+        put16(d + 2, offset_pont_ph[0]); put16(d + 4, offset_pont_ph[1]); put16(d + 6, offset_pont_ph[2]);
         return 8;
     default:
         return 0;

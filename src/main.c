@@ -286,6 +286,16 @@ volatile uint16_t hall_stable_ticks = 0;          /* ticks de 4 kHz sans changem
 static uint8_t hall_prec = 0xFF;
 #define HALL_STABLE_TICKS 200u                    /* 50 ms a 4 kHz */
 
+#ifdef BENCH_BUILD
+/* PORTE 4, correctif F1 (26/10/2026) : sur le controleur du velo, le zero bras bas ferme differe de 10 a 15 pts du zero pont en
+   commutation (1 a 3 au banc) : trip a vide des u_d 2. Offsets repris trois phases a 50 % (voir offset_cal_pont_50). */
+volatile int16_t offset_pont_ph[3] = {0, 0, 0};   /* derniere mesure pont a 50 % (ph1, ph2, ph3), meme rejetee : telemetrie E207 */
+volatile uint8_t offset_cal_pont = 0;             /* vrai pendant la mesure pont a 50 % : garde CAL_PONT_LIM dans l'ISR */
+/* PORTE 4, correctif F2 : variante lue au demarrage et seuils en points a son echelle */
+volatile uint8_t bench_variante = 0;
+uint8_t bench_ph_max = PH_CURRENT_MAX, bench_walk_max = BENCH_WALK_ILIM_MAX;
+#endif
+
 static void suivre_hall(void)
 {
     uint8_t h = (uint8_t)((GPIO_ISTAT(GPIOC) >> 6) & 0x07u);
@@ -338,6 +348,77 @@ static uint8_t offset_cal_phase(uint32_t chctl2, uint32_t adc, int32_t *off)
     return ok;
 }
 
+#ifdef BENCH_BUILD
+/* PORTE 4, correctif F1 : offsets pris pont en commutation, comme en marche a consigne nulle. MOE = 1, CHCTL2 de marche, les
+   trois CCR a _T/2 : vecteur nul, aucune tension nette sur le moteur. switchtime a _T/2 pour que dyn_adc_state laisse le
+   declenchement ADC a TRIGGER_DEFAULT (meme instant d'echantillonnage qu'en marche a faible tension). Offsets injectes a 0,
+   10 ms de stabilisation, 256 lectures brutes par voie (une par periode a 4 kHz), MOE = 0, 10 ms MOE = 0.
+   Garde dans l'ISR pendant la mesure (offset_cal_pont) : |brut - offset bras bas ferme| > CAL_PONT_LIM pendant
+   PH_TRIP_PERIODS periodes PWM -> defaut 10. Ici, en secours a 4 kHz, la meme limite sur une lecture -> defaut 10.
+   Appelee seulement apres une mesure bras bas ferme valide (offset_cal_ph dans la plage), roue arretee. */
+static uint8_t offset_cal_pont_50(int32_t p[3])
+{
+    static const uint32_t adc[3] = {ADC2, ADC1, ADC0};  /* ph1 PA2, ph2 PA3, ph3 PA5 */
+    uint32_t s[3] = {0, 0, 0};
+    uint8_t ok = 1;
+    for (int k = 0; k < 3; k++) adc_inserted_channel_offset_config(adc[k], ADC_INSERTED_CHANNEL_0, 0);
+    switchtime[0] = switchtime[1] = switchtime[2] = _T >> 1;
+    timer_channel_output_pulse_value_config(TIMER0, TIMER_CH_0, _T >> 1);
+    timer_channel_output_pulse_value_config(TIMER0, TIMER_CH_1, _T >> 1);
+    timer_channel_output_pulse_value_config(TIMER0, TIMER_CH_2, _T >> 1);
+    timer_channel_output_pulse_value_config(TIMER0, TIMER_CH_3, TRIGGER_DEFAULT);
+    TIMER_CHCTL2(TIMER0) = CHCTL2_RUN;
+    offset_cal_pont = 1;
+    __disable_irq();
+    if (safety_is_latched()) ok = 0;
+    else TIMER_CCHP(TIMER0) |= (uint32_t)TIMER_CCHP_POEN;
+    __enable_irq();
+    for (int i = 0; ok && i < 40; i++) {
+        reg_ADC_flag = 0;
+        if(!wait_reg_adc_flag()) ok = 0;
+        if (safety_is_latched()) ok = 0;
+        fwdgt_counter_reload();
+    }
+    for (int i = 0; ok && i < 256; i++) {
+        reg_ADC_flag = 0;
+        if(!wait_reg_adc_flag()) ok = 0;
+        for (int k = 0; ok && k < 3; k++) {
+            int32_t b = (int32_t)(uint16_t)adc_inserted_data_read(adc[k], ADC_INSERTED_CHANNEL_0);
+            s[k] += (uint32_t)b;
+            if (abs(b - offset_cal_ph[k]) > CAL_PONT_LIM) { safety_fault(FAULT_OFFSET); ok = 0; }
+        }
+        if (safety_is_latched()) ok = 0;
+        fwdgt_counter_reload();
+    }
+    safety_pwm_off();
+    offset_cal_pont = 0;
+    if (safety_is_latched()) ok = 0;
+    for (int k = 0; k < 3; k++) p[k] = (int32_t)(s[k] >> 8);
+    for (int i = 0; i < 40; i++) {
+        reg_ADC_flag = 0;
+        if(!wait_reg_adc_flag()) break;
+        fwdgt_counter_reload();
+    }
+    return ok;
+}
+
+/* PORTE 4, correctif F2 : octet de variante 0x0803D800, hors image (le flash par CAN ne l'efface pas). 2 : R = 1,5, seuils de
+   config.h tels quels ; 1 : R = 3,5, seuils x 733 / 314 (arrondi bas). Autre valeur : faux, le demarrage pose le defaut 10. */
+static uint8_t variante_init(void)
+{
+    uint32_t ech;
+    bench_variante = *(volatile const uint8_t *)VARIANTE_ADDR;
+    if (bench_variante == 2) ech = PH_COUNTS_PER_A_X100;
+    else if (bench_variante == 1) ech = PH_COUNTS_PER_A_X100_R35;
+    else return 0;
+    safety_ph_trip = (int16_t)((PH_CURRENT_TRIP * ech) / PH_COUNTS_PER_A_X100);
+    bench_ph_max = (uint8_t)((PH_CURRENT_MAX * ech) / PH_COUNTS_PER_A_X100);
+    bench_walk_max = (uint8_t)((BENCH_WALK_ILIM_MAX * ech) / PH_COUNTS_PER_A_X100);
+    MP.phase_current_max = bench_ph_max;
+    return 1;
+}
+#endif
+
 /* REVUE-PUISSANCE P8, PORTE 4 : calibration des offsets de courant, moteur a l'arret, au demarrage.
    Batterie (shunt) : moyenne de 256 conversions regulieres, sorties coupees, plage 1600..2300 comme l'origine.
    Phases : bras bas de la phase mesuree ferme (offset_cal_phase), plage 2048 +- 128 comme l'origine (0x7801..0x87FF sur 16
@@ -370,6 +451,22 @@ static uint8_t calibrate_current_offsets(void)
         offset_cal_active = 0;
         return 0;
     }
+#ifdef BENCH_BUILD
+    /* correctif F1 : la mesure bras bas ferme sert de controle, les offsets appliques sont ceux du pont a 50 % */
+    int32_t p[3] = {0, 0, 0};
+    uint8_t okp = offset_cal_pont_50(p);
+    offset_pont_ph[0] = (int16_t)p[0]; offset_pont_ph[1] = (int16_t)p[1]; offset_pont_ph[2] = (int16_t)p[2];
+    for (int k = 0; okp && k < 3; k++)
+        if (abs(p[k] - 2048) > 128 || abs(p[k] - offset_cal_ph[k]) > CAL_PONT_ECART_MAX) okp = 0;
+    if (!okp) {
+        adc_inserted_channel_offset_config(ADC0, ADC_INSERTED_CHANNEL_0, 2045);
+        adc_inserted_channel_offset_config(ADC1, ADC_INSERTED_CHANNEL_0, 2050);
+        adc_inserted_channel_offset_config(ADC2, ADC_INSERTED_CHANNEL_0, 2045);
+        offset_cal_active = 0;
+        return 0;
+    }
+    o_ph1 = p[0]; o_ph2 = p[1]; o_ph3 = p[2];
+#endif
     bat_current_offset = o_bat;
     adc_inserted_channel_offset_config(ADC0, ADC_INSERTED_CHANNEL_0, (uint16_t)o_ph3);
     adc_inserted_channel_offset_config(ADC1, ADC_INSERTED_CHANNEL_0, (uint16_t)o_ph2);
@@ -561,6 +658,9 @@ int main(void)
     	if(!wait_reg_adc_flag()){ safety_fault(FAULT_STARTUP_ADC); break; }
     	suivre_hall();
     }
+#ifdef BENCH_BUILD
+    if(!variante_init()) safety_fault(FAULT_OFFSET);   /* correctif F2 : variante inconnue, pas de calibration ni de MOE */
+#endif
     if(!safety_is_latched() && roue_arretee()){
     	if(calibrate_current_offsets()) offsets_valides = 1;
     	else safety_fault(FAULT_OFFSET);
@@ -1738,6 +1838,17 @@ void ADC0_1_IRQHandler(void)
     i16_ph1_current = CURRENT_SIGN * (int16_t)adc_inserted_data_read(ADC2, ADC_INSERTED_CHANNEL_0);
     i16_ph2_current = CURRENT_SIGN * (int16_t)adc_inserted_data_read(ADC1, ADC_INSERTED_CHANNEL_0);
     i16_ph3_current = CURRENT_SIGN * (int16_t)adc_inserted_data_read(ADC0, ADC_INSERTED_CHANNEL_0);
+#ifdef BENCH_BUILD
+    /* correctif F1 : pendant la mesure pont a 50 % (offsets injectes a 0, valeurs brutes), garde avant toute reconstruction */
+    if(offset_cal_pont){
+    	static uint8_t n_pont = 0;
+    	if(abs(CURRENT_SIGN * i16_ph1_current - offset_cal_ph[0]) > CAL_PONT_LIM
+    	   || abs(CURRENT_SIGN * i16_ph2_current - offset_cal_ph[1]) > CAL_PONT_LIM
+    	   || abs(CURRENT_SIGN * i16_ph3_current - offset_cal_ph[2]) > CAL_PONT_LIM){
+    		if(++n_pont >= PH_TRIP_PERIODS) safety_fault(FAULT_OFFSET);
+    	} else n_pont = 0;
+    }
+#endif
 
 
 	switch (MS.char_dyn_adc_state) //read in according to state

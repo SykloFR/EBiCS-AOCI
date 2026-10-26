@@ -33,7 +33,8 @@ cflags = ["-mcpu=cortex-m3", "-mthumb", "-mfloat-abi=soft", "-DGD32F10X_HD", "-D
           "-IFirmware_F10x/CMSIS/GD/GD32F10x/Include", "-IFirmware_F10x/GD32F10x_standard_peripheral/Include"]
 macros = run("arm-none-eabi-gcc", *cflags, "-dM", "-E", "src/main.c")
 want = r"^#define (BENCH_\w+|PH_CURRENT_MAX|PH_CURRENT_TRIP|PH_TRIP_PERIODS|BATTERYCURRENT_MAX|VOLTAGE_MIN|" \
-       r"TEMP_SENSOR_REQUIRED|U_MAX_BENCH|_U_MAX|CURRENT_SIGN|_T|DYNAMIC_ADC_THRESHOLD|REVERSE|LEGALFLAG|GEAR_RATIO)\b.*"
+       r"TEMP_SENSOR_REQUIRED|U_MAX_BENCH|_U_MAX|CURRENT_SIGN|_T|DYNAMIC_ADC_THRESHOLD|REVERSE|LEGALFLAG|GEAR_RATIO|" \
+       r"CAL_PONT_\w+|VARIANTE_ADDR|PH_COUNTS_PER_A_\w+|TRIGGER_DEFAULT)\b.*"
 for line in sorted(l for l in macros.splitlines() if re.match(want, l)):
     print(line)
 
@@ -45,7 +46,9 @@ for l in nm.splitlines():
     if len(p) == 4:
         syms[p[3]] = (int(p[0], 16), int(p[1], 16), p[2])
 for s in ("bench_ol_vector", "bench_ol_enable", "bench_ol_ud", "bench_ol_angle", "bench_ol_keepalive", "bench_ol_active",
-          "boot_reset_flags", "pwm_enable_safe", "pwm_disable", "autodetect", "safety_check_phase_currents"):
+          "boot_reset_flags", "pwm_enable_safe", "pwm_disable", "autodetect", "safety_check_phase_currents",
+          "offset_cal_pont_50", "variante_init", "offset_pont_ph", "offset_cal_pont", "bench_variante", "safety_ph_trip",
+          "bench_ph_max", "bench_walk_max"):
     v = syms.get(s)
     print(f"{s:28s} " + (f"{v[0]:#010x} taille {v[1]:4d} ({v[2]})" if v else "absent (inline ou retire par l'editeur de liens)"))
 
@@ -76,8 +79,33 @@ print(f"<Default_Handler> @ {a:#010x}")
 print(run("arm-none-eabi-objdump", "-d", "--no-show-raw-insn", f"--start-address={a:#x}", f"--stop-address={a + 0x28:#x}",
           ELF).split("Disassembly of section .text:")[-1].strip())
 sc = func("safety_check_phase_currents", 40)
-print("seuil PH_CURRENT_TRIP 16 dans safety_check_phase_currents :", "OK (cmp #15)" if re.search(r"cmp\s+r\d+, #15\b", sc) else "A VERIFIER")
+
+def lit_adresse(corps, sym):
+    """vrai si le pool litteral de la fonction contient l'adresse de la variable sym (.word 0x...)"""
+    v = syms.get(sym)
+    return bool(v) and re.search(rf"\.word\s+0x{v[0]:08x}\b", corps) is not None
+
+
+# correctif F2 : le seuil n'est plus une constante (cmp #15) mais la variable safety_ph_trip, 16 pour la variante 2
+print("seuil lu dans safety_ph_trip (correctif F2) :", "OK" if lit_adresse(sc, "safety_ph_trip") else "A VERIFIER")
 func("bench_ol_vector", 16)
+
+section("Correctifs F1 / F2 (26/10/2026)")
+vi = func("variante_init", 40) if "variante_init" in syms else func("main", 0)   # integree dans main (inline)
+print("variante_init lit 0x0803D800 :", "OK" if re.search(r"\.word\s+0x0803d800\b", vi) else "A VERIFIER")
+for v, nom, ech in ((2, "R = 1,5", 314), (1, "R = 3,5", 733)):
+    t, m, w = 16 * ech // 314, 12 * ech // 314, 5 * ech // 314
+    print(f"variante {v} ({nom}, {ech / 100} pts/A) : trip {t} pts = {t * 100 / ech:.1f} A, max {m} pts = "
+          f"{m * 100 / ech:.1f} A, walk {w} pts = {w * 100 / ech:.1f} A")
+func("offset_cal_pont_50", 90)
+isr = func("ADC0_1_IRQHandler", 0)
+print("garde F1 dans l'ISR (lit offset_cal_pont) :", "OK" if lit_adresse(isr, "offset_cal_pont") else "A VERIFIER")
+cal = func("calibrate_current_offsets", 0)
+if "offset_cal_pont_50" in syms:
+    print("calibrate_current_offsets appelle offset_cal_pont_50 :", "OK" if "<offset_cal_pont_50>" in cal else "A VERIFIER")
+else:
+    print("offset_cal_pont_50 integree (inline) : garde lue dans calibrate_current_offsets :",
+          "OK" if lit_adresse(cal, "offset_cal_pont") else "A VERIFIER")
 
 section("Table de vecteurs (debut de ebics.bin) : entrees qui tombent sur Default_Handler")
 names = []

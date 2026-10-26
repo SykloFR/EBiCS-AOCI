@@ -133,6 +133,14 @@
 #define BENCH_NO_EEPROM          // page 0x0803F000 ni lue ni ecrite : MP vient des macros ci-dessus (la page contient MP d'un ancien build)
 #define BENCH_OL_UD_MAX 60       // outil vecteur fixe : u_d plafonne a 60/2048 de Vbat (~0,7 V a 24 V)
 #define BENCH_WALK_ILIM_MAX 5    // home trainer (avis Fangyan 26/10) : walk assist par CAN plafonne a 5 pts (~1,6 A)
+/* PORTE 4, correctif F1 (26/10/2026, trip a vide sur le velo) : offsets de phase repris pont en commutation, trois phases a
+   50 % (vecteur nul), apres la mesure bras bas ferme qui sert de controle. */
+#define CAL_PONT_LIM 60          // pts : |brut - offset bras bas ferme| tenu PH_TRIP_PERIODS periodes pendant la mesure -> defaut 10
+#define CAL_PONT_ECART_MAX 40    // pts : ecart maximal admis entre les deux methodes, sinon defaut 10
+/* PORTE 4, correctif F2 : octet de variante 0x0803D800 (hors image, conserve par le flash). Les seuils en points ci-dessus
+   valent pour 2 (R = 1,5, 3,14 pts/A) ; 1 (R = 3,5, 7,33 pts/A) les multiplie par 733 / 314 ; autre valeur : defaut 10. */
+#define VARIANTE_ADDR 0x0803D800u
+#define PH_COUNTS_PER_A_X100_R35 733
 #ifndef CURRENT_SIGN
 #error "build banc : CURRENT_SIGN doit etre passe explicitement (CURRENT_SIGN=-1 ou 1), c'est une hypothese a verifier en A5/A6"
 #endif

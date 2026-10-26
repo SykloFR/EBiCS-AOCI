@@ -18,6 +18,14 @@ void safety_fault(uint8_t code)
    plus saturation de l'ampli de mesure (|i| >= 2000 points sur 2048 : coupure immediate). */
 #define PH_SATURATION_COUNTS 2000
 
+#ifdef BENCH_BUILD
+/* PORTE 4, correctif F2 : seuil a l'echelle de la variante lue au demarrage (main.c, variante_init) */
+volatile int16_t safety_ph_trip = PH_CURRENT_TRIP;
+#define PH_TRIP_SEUIL safety_ph_trip
+#else
+#define PH_TRIP_SEUIL PH_CURRENT_TRIP
+#endif
+
 static inline int16_t abs16(int16_t v) { return (v < 0) ? (int16_t)-v : v; }
 
 void safety_check_phase_currents(int16_t i1, int16_t i2, int16_t i3)
@@ -31,7 +39,7 @@ void safety_check_phase_currents(int16_t i1, int16_t i2, int16_t i3)
         safety_fault(FAULT_OVERCURRENT);
         return;
     }
-    if (m >= PH_CURRENT_TRIP) {
+    if (m >= PH_TRIP_SEUIL) {
         if (++trip_count >= PH_TRIP_PERIODS) {
             safety_fault(FAULT_OVERCURRENT);
         }

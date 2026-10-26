@@ -29,6 +29,9 @@
 #define FAULT_BENCH_ESTOP     31   /* build de banc : arrêt d'urgence reçu par CAN (0x1DF0E000) */
 
 extern volatile uint8_t safety_fault_code_latched;
+#ifdef BENCH_BUILD
+extern volatile int16_t safety_ph_trip;          /* seuil de surintensite en points, a l'echelle de la variante (correctif F2) */
+#endif
 
 /* coupe les sorties de puissance (MOE = 0), immediatement, sans appel de fonction de bibliotheque */
 static inline void safety_pwm_off(void)

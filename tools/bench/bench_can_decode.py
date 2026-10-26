@@ -8,7 +8,7 @@ import argparse, collections, csv, struct, sys, time
 import can
 
 PERIODE = {0xE000: 20, 0xE001: 20, 0xE002: 50, 0xE100: 50, 0xE101: 50, 0xE102: 50, 0xE103: 50,
-           0xE200: 100, 0xE201: 100, 0xE202: 100, 0xE203: 1000, 0xE204: 1000, 0xE205: 1000}
+           0xE200: 100, 0xE201: 100, 0xE202: 100, 0xE203: 1000, 0xE204: 1000, 0xE205: 1000, 0xE207: 1000}
 
 
 def decode(cle, d):
@@ -46,8 +46,10 @@ def decode(cle, d):
     if cle == 0xE204:
         return dict(ph_max=u8(1), ph_trip=u8(2), ilim=u8(3), u_max=u8(4) * 8, v_min=u16(5), ol_ud_max=u8(7))
     if cle == 0xE205:
-        return dict(off_ph1=u16(1), off_ph2=u16(3), off_ph3=u16(5), off_dans_plage=d[7] & 1, off_appliques=d[7] >> 1 & 1,
+        return dict(off_ph1=u16(1), off_ph2=u16(3), off_ph3=u16(5), off_dans_plage=d[7] & 1, pont_appliques=d[7] >> 1 & 1,
                     calibration_faite=d[7] >> 2 & 1, roue_arretee=d[7] >> 3 & 1, hall_valide=d[7] >> 4 & 1)
+    if cle == 0xE207:
+        return dict(variante=u8(1), pont_ph1=u16(2), pont_ph2=u16(4), pont_ph3=u16(6))
     return {}
 
 
