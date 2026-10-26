@@ -1,7 +1,9 @@
 """Télémétrie CAN de banc (src/bench_can.c) : décodage, journal et contrôle des séquences, en ÉCOUTE SEULE (PCAN).
 Trames 0x1EE8xxxx (contrôleur en mode banc 0x1E -> PC 0x1D). Affiche un état chaque seconde, écrit un CSV décodé
 (une ligne par trame) et termine par un bilan : débit par trame, trous de séquence, trames perdues annoncées.
-Usage : python tools/bench/bench_can_decode.py [duree_s=20] [--csv FICHIER] [--canal PCAN_USBBUS1]"""
+Sans aucun autre noeud sur le bus (afficheur debranche), personne n'acquitte : le controleur reemet en boucle et compte
+ses trames perdues. --actif met alors le CANable en mode actif : il acquitte, mais n'emet toujours aucune trame.
+Usage : python tools/bench/bench_can_decode.py [duree_s=20] [--csv FICHIER] [--canal PCAN_USBBUS1] [--actif]"""
 import argparse, collections, csv, struct, sys, time
 import can
 
@@ -53,6 +55,7 @@ def main():
     ap.add_argument("duree", nargs="?", type=float, default=20.0)
     ap.add_argument("--csv")
     ap.add_argument("--canal", default="PCAN_USBBUS1")
+    ap.add_argument("--actif", action="store_true", help="acquitter les trames (aucune emission)")
     a = ap.parse_args()
     stats = collections.defaultdict(lambda: {"n": 0, "trous": 0, "seq": None, "t0": None, "t1": None})
     dernier = {}
@@ -61,8 +64,8 @@ def main():
         fcsv = open(a.csv, "w", newline="", encoding="utf-8")
         w = csv.writer(fcsv)
         w.writerow(["t", "trame", "seq", "champs"])
-    with can.Bus(interface="pcan", channel=a.canal, bitrate=250000, state=can.BusState.PASSIVE) as bus:
-        print(f"écoute seule {a.canal}, {a.duree:.0f} s", flush=True)
+    with can.Bus(interface="pcan", channel=a.canal, bitrate=250000, state=can.BusState.ACTIVE if a.actif else can.BusState.PASSIVE) as bus:
+        print(f"{'acquittement sans emission' if a.actif else 'ecoute seule'} {a.canal}, {a.duree:.0f} s", flush=True)
         t0 = t_aff = time.time()
         while time.time() - t0 < a.duree:
             m = bus.recv(timeout=0.1)
