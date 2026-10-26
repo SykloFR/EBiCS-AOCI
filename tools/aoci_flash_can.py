@@ -131,18 +131,24 @@ def flasher(bus, img, attente, journal):
 
     log(f"attente de l'accord du bootloader ({attente:.0f} s max) : METTRE LE CONTROLEUR SOUS TENSION")
     fin = time.time() + attente
-    accord = False
-    while time.time() < fin and not accord:
+    taille_ok = False
+    while time.time() < fin and not taille_ok:
         bus.envoyer(ANNONCE, b"\x00")
         bus.envoyer(DEMANDE, bytes.fromhex("5ca00200"))
-        accord = attendre(ACCORD, 0.020)
-    if not accord:
-        log("ECHEC : pas d'accord du bootloader (contrôleur mis sous tension pendant l'attente ?)")
-        return False
-    log("accord du bootloader (0x12AAB000)")
-    bus.envoyer(ID_TAILLE, len(img).to_bytes(3, "big"))
-    if not attendre(ACC_TAILLE, T_BLOC):
-        log("ECHEC : taille non acquittée")
+        if not attendre(ACCORD, 0.020):
+            continue
+        log("accord du bootloader (0x12AAB000)")
+        # 26/10 : taille envoyée aussitôt après l'accord, non acquittée une fois sur trois. Le programmateur officiel
+        # attend ~2,7 ms : on attend 5 ms, puis 3 essais. Sans accusé, retour à la demande (aucune donnée écrite).
+        time.sleep(0.005)
+        for essai in range(3):
+            bus.envoyer(ID_TAILLE, len(img).to_bytes(3, "big"))
+            if attendre(ACC_TAILLE, T_BLOC):
+                taille_ok = True
+                break
+            log(f"taille non acquittée (essai {essai + 1}/3)")
+    if not taille_ok:
+        log("ECHEC : pas d'accord ni de taille acquittée (contrôleur mis sous tension pendant l'attente ?)")
         return False
     log(f"taille {len(img):#x} acquittée, envoi des blocs")
     total = (len(img) + 7) // 8
