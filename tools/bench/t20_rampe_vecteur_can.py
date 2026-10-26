@@ -13,8 +13,15 @@ PAS = int(sys.argv[3]) if len(sys.argv) > 3 else 2
 SEUIL = float(sys.argv[4]) if len(sys.argv) > 4 else 8
 ANGLE = float(sys.argv[5]) if len(sys.argv) > 5 else 0.0
 paliers, arret = [], None
+ATTENDRE = float(os.environ.get("T20_ATTENDRE", "0"))   # s : attendre le démarrage du contrôleur (hello E203)
 with Banc() as b:
     time.sleep(1.2)
+    t_att = time.time()
+    while ATTENDRE and time.time() - t_att < ATTENDRE and not b.dernier.get(0xE205, {}).get("calibration_faite"):
+        time.sleep(0.05)
+    if ATTENDRE:
+        time.sleep(1.2)                                    # E200 / E205 à jour
+        print(f"contrôleur vu après {time.time() - t_att:.1f} s d'attente", flush=True)
     e200, e205 = b.dernier.get(0xE200, {}), b.dernier.get(0xE205, {})
     print(f"départ : défaut {e200.get('defaut')}, calibration {e205.get('calibration_faite')}, Hall {b.dernier.get(0xE001, {}).get('hall_gpio')}", flush=True)
     if e200.get("defaut") or not e205.get("calibration_faite"):
