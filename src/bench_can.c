@@ -18,6 +18,18 @@
  *               b1 TEMP_SENSOR_REQUIRED, b2 CURRENT_SIGN < 0, b3 arbre git modifié)
  *   E204  1 Hz  PH_CURRENT_MAX, PH_CURRENT_TRIP, ilim (u8, pts), _U_MAX / 8 (u8), VOLTAGE_MIN (u16, pt), BENCH_OL_UD_MAX (u8)
  *   E205  1 Hz  offsets bras bas fermé ph1, ph2, ph3 (u16, pt), état (b0 dans la plage, b1 appliqués)
+ *   E206  sur commande : opcode (u8), cmd_seq (u8), statut (u8 : 0 accepté, 1 refusé sans heartbeat depuis 500 ms,
+ *               2 refusé défaut verrouillé, 3 refusé frein ou demande d'assistance, 4 commande invalide)
+ *
+ * Commandes (T2), reçues par 2 filtres en liste exacte vers la FIFO0, lues ici depuis la boucle principale (aucune
+ * interruption ajoutée). Règles :
+ *   - ESTOP 0x1DF0E000 (tout contenu) : toujours accepté, défaut 31 verrouillé (MOE = 0 d'abord), remise sous tension.
+ *   - HEARTBEAT 0x1DF0E001 : « présent » si reçu il y a 300 ms au plus. Pendant un essai lancé par CAN, chaque heartbeat
+ *     remet le keepalive de l'outil à 300 ms (1200 ticks à 4 kHz) : sans heartbeat, l'outil s'arrête de toute façon.
+ *   - Heartbeat absent plus de 300 ms pendant un essai lancé par CAN : défaut 30 verrouillé (MOE = 0 d'abord).
+ *   - OL_SET (0x10, angle u16, u_d u8) : refusé sans heartbeat continu depuis 500 ms, avec un défaut verrouillé, le frein
+ *     serré ou une demande d'assistance ; u_d borné à BENCH_OL_UD_MAX ici et dans bench_ol_vector(). OL_STOP (0x11) :
+ *     arrêt de l'outil, sans défaut. L'outil piloté par SWD (keepalive 8000) n'est pas concerné par le heartbeat.
  */
 #include "bench_can.h"
 
@@ -49,12 +61,26 @@ extern volatile uint8_t ui_8_PWM_ON_Flag;
 extern volatile uint16_t adc_value[9];
 extern uint32_t boot_reset_flags;
 extern volatile int16_t offset_cal_ph[3];
+extern volatile uint8_t bench_ol_enable;
 extern volatile uint8_t bench_ol_active;
 extern volatile int16_t bench_ol_ud;
 extern volatile q31_t bench_ol_angle;
 extern volatile uint16_t bench_ol_keepalive;
 
 volatile uint32_t bench_ms = 0;
+
+#define ID_ESTOP      0x1DF0E000u
+#define ID_HEARTBEAT  0x1DF0E001u
+#define ID_CMD        0x1DF0E002u
+#define HB_TIMEOUT_MS 300u
+#define HB_ARMEMENT_MS 500u
+#define OL_KEEPALIVE_CAN 1200u                           /* 300 ms à 4 kHz */
+#define OP_OL_SET  0x10u
+#define OP_OL_STOP 0x11u
+
+static uint8_t hb_vu = 0, ol_par_can = 0, defaut_banc = 0, rx_perdues = 0;
+static uint32_t hb_dernier = 0, hb_debut = 0;
+static uint8_t ack_attente = 0, ack_op = 0, ack_seq = 0, ack_statut = 0, ack_tx_seq = 0;
 
 typedef struct { uint8_t idx, sub; uint16_t periode_ms; uint32_t dernier; uint8_t seq; } bench_trame_t;
 
@@ -98,6 +124,24 @@ static uint8_t offsets_ok(void)
 
 static uint8_t moe(void) { return (TIMER_CCHP(TIMER0) & TIMER_CCHP_POEN) ? 1u : 0u; }
 
+static uint8_t hb_present(uint32_t now) { return hb_vu && (uint32_t)(now - hb_dernier) <= HB_TIMEOUT_MS; }
+
+/* filtre 32 bits en liste exacte : deux ID étendus par banc, vers la FIFO0. Un filtre en liste a priorité sur le filtre 0
+   (masque, tout accepté, FIFO1, traité par l'afficheur) : ces ID ne vont plus que dans la FIFO0. */
+static void filtre_liste(uint16_t numero, uint32_t id_a, uint32_t id_b)
+{
+    can_filter_parameter_struct f;
+    uint32_t a = (id_a << 3) | 4u, b = (id_b << 3) | 4u;   /* EXTID << 3, bit IDE */
+    f.filter_number = numero;
+    f.filter_mode = CAN_FILTERMODE_LIST;
+    f.filter_bits = CAN_FILTERBITS_32BIT;
+    f.filter_list_high = (uint16_t)(a >> 16); f.filter_list_low = (uint16_t)a;
+    f.filter_mask_high = (uint16_t)(b >> 16); f.filter_mask_low = (uint16_t)b;
+    f.filter_fifo_number = CAN_FIFO0;
+    f.filter_enable = ENABLE;
+    can_filter_init(&f);
+}
+
 void bench_can_init(void)
 {
     CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;     /* compteur de cycles pour le coût d'un envoi */
@@ -105,6 +149,70 @@ void bench_can_init(void)
     DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
     for (unsigned i = 0; i < NB_TRAMES; i++)            /* toutes dues tout de suite : E203 (hello) part au démarrage */
         trames[i].dernier = bench_ms - trames[i].periode_ms;
+    filtre_liste(1, ID_ESTOP, ID_HEARTBEAT);
+    filtre_liste(2, ID_CMD, ID_CMD);
+}
+
+static void repondre(uint8_t op, uint8_t seq, uint8_t statut)
+{
+    ack_op = op; ack_seq = seq; ack_statut = statut; ack_attente = 1;
+}
+
+static void commande(const can_receive_message_struct* m, uint32_t now)
+{
+    if (m->rx_ff != CAN_FF_EXTENDED) return;
+    if (m->rx_efid == ID_ESTOP) {
+        safety_fault(FAULT_BENCH_ESTOP);                 /* MOE = 0 d'abord, puis verrou */
+        bench_ol_enable = 0; ol_par_can = 0;
+        if (!defaut_banc) defaut_banc = FAULT_BENCH_ESTOP;
+        repondre(0xFF, 0, 0);
+        return;
+    }
+    if (m->rx_efid == ID_HEARTBEAT) {
+        if (!hb_present(now)) hb_debut = now;            /* début d'une présence continue */
+        hb_dernier = now; hb_vu = 1;
+        if (ol_par_can && bench_ol_enable) bench_ol_keepalive = OL_KEEPALIVE_CAN;
+        return;
+    }
+    if (m->rx_efid != ID_CMD || m->rx_dlen < 2) return;
+    uint8_t op = m->rx_data[0], seq = m->rx_data[1];
+    if (op == OP_OL_STOP) {
+        bench_ol_enable = 0; bench_ol_ud = 0; ol_par_can = 0;
+        repondre(op, seq, 0);
+        return;
+    }
+    if (op != OP_OL_SET || m->rx_dlen < 5) { repondre(op, seq, 4); return; }
+    if (safety_is_latched()) { repondre(op, seq, 2); return; }
+    if (!hb_present(now) || (uint32_t)(now - hb_debut) < HB_ARMEMENT_MS) { repondre(op, seq, 1); return; }
+    if (MS.brake_active_flag || MS.i_q_setpoint) { repondre(op, seq, 3); return; }
+    uint16_t angle = (uint16_t)(m->rx_data[2] | (m->rx_data[3] << 8));
+    uint8_t ud = m->rx_data[4] > BENCH_OL_UD_MAX ? BENCH_OL_UD_MAX : m->rx_data[4];
+    bench_ol_angle = (q31_t)((uint32_t)angle << 16);    /* angle et u_d d'abord, activation ensuite */
+    bench_ol_ud = ud;
+    bench_ol_keepalive = OL_KEEPALIVE_CAN;
+    ol_par_can = 1;
+    bench_ol_enable = 1;
+    repondre(op, seq, 0);
+}
+
+/* réception et surveillance : à chaque tour de boucle, avant l'émission */
+static void recevoir(uint32_t now)
+{
+    if (CAN_RFIFO0(CAN0) & CAN_RFIFO0_RFO0) {            /* FIFO0 débordée : commandes perdues */
+        if (rx_perdues < 255) rx_perdues++;
+        CAN_RFIFO0(CAN0) = CAN_RFIFO0_RFO0;              /* effacement par écriture de 1 */
+    }
+    for (int n = 0; n < 3 && (CAN_RFIFO0(CAN0) & CAN_RFIFO0_RFL0); n++) {
+        can_receive_message_struct m;
+        can_message_receive(CAN0, CAN_FIFO0, &m);       /* libère l'entrée de la FIFO0 */
+        commande(&m, now);
+    }
+    if (!bench_ol_enable && !bench_ol_active) ol_par_can = 0;   /* outil arrêté (keepalive, OL_STOP, défaut) */
+    if (ol_par_can && (uint32_t)(now - hb_dernier) > HB_TIMEOUT_MS) {
+        safety_fault(FAULT_BENCH_HEARTBEAT);             /* MOE = 0 d'abord, puis verrou */
+        bench_ol_enable = 0; ol_par_can = 0;
+        if (!defaut_banc) defaut_banc = FAULT_BENCH_HEARTBEAT;
+    }
 }
 
 void bench_can_sample(int16_t i1, int16_t i2, int16_t i3)
@@ -127,7 +235,7 @@ static uint8_t remplir(const bench_trame_t* t, uint8_t* d)
     case 0xE000:
         put16(d + 1, sat16(PI_iq.setpoint)); put16(d + 3, sat16(MS.i_q)); put16(d + 5, sat16(MS.i_d));
         d[7] = (uint8_t)(moe() | (ui_8_PWM_ON_Flag ? 2u : 0u) | (MS.pushassist_flag ? 4u : 0u)
-                         | (MS.brake_active_flag ? 8u : 0u) | (safety_is_latched() ? 0x20u : 0u)
+                         | (MS.brake_active_flag ? 8u : 0u) | (hb_present(bench_ms) ? 0x10u : 0u) | (safety_is_latched() ? 0x20u : 0u)
                          | (bench_ol_active ? 0x40u : 0u) | (offsets_ok() ? 0x80u : 0u));
         return 8;
     case 0xE001:
@@ -159,7 +267,7 @@ static uint8_t remplir(const bench_trame_t* t, uint8_t* d)
         put16(d + 5, sat16(MS.i_q_setpoint_temp)); d[7] = (uint8_t)MP.phase_current_max;
         return 8;
     case 0xE200:
-        d[1] = safety_fault_code_latched; d[2] = 0;
+        d[1] = safety_fault_code_latched; d[2] = defaut_banc;
         d[3] = (uint8_t)(moe() | (ui_8_PWM_ON_Flag ? 2u : 0u) | (bench_ol_active ? 4u : 0u));
         d[4] = (uint8_t)gpio_hall; put16(d + 5, uint16_half_rotation_counter); d[7] = (uint8_t)(boot_reset_flags >> 24);
         return 8;
@@ -167,7 +275,7 @@ static uint8_t remplir(const bench_trame_t* t, uint8_t* d)
         put16(d + 1, MS.int_Temperature); put16(d + 3, 0x7FFF); put16(d + 5, adc_value[6]); d[7] = 0xFF;
         return 8;
     case 0xE202:
-        put16(d + 1, lost); d[3] = 0; d[4] = (uint8_t)(err >> 16); d[5] = (uint8_t)(err >> 24); put16(d + 6, cycles_max);
+        put16(d + 1, lost); d[3] = rx_perdues; d[4] = (uint8_t)(err >> 16); d[5] = (uint8_t)(err >> 24); put16(d + 6, cycles_max);
         return 8;
     case 0xE203:
         put16(d + 1, BENCH_CAN_VERSION); put32(d + 3, BENCH_GIT_HASH);
@@ -192,16 +300,35 @@ static uint8_t remplir(const bench_trame_t* t, uint8_t* d)
     }
 }
 
+static uint8_t boites_libres(void)
+{
+    uint32_t ts = CAN_TSTAT(CAN0);
+    return (uint8_t)(((ts & CAN_TSTAT_TME0) ? 1 : 0) + ((ts & CAN_TSTAT_TME1) ? 1 : 0) + ((ts & CAN_TSTAT_TME2) ? 1 : 0));
+}
+
+static void envoyer(uint32_t id, const uint8_t* d, uint8_t dlen)
+{
+    can_trasnmit_message_struct m;
+    m.tx_sfid = 0; m.tx_efid = id; m.tx_ff = CAN_FF_EXTENDED; m.tx_ft = CAN_FT_DATA; m.tx_dlen = dlen;
+    for (int i = 0; i < 8; i++) m.tx_data[i] = d[i];
+    can_message_transmit(CAN0, &m);
+}
+
 void bench_can_poll(void)
 {
     uint32_t now = bench_ms;
+    recevoir(now);
+    if (ack_attente && boites_libres() >= 2) {          /* réponse à une commande : avant la télémétrie */
+        uint8_t d[8] = {ack_tx_seq++, ack_op, ack_seq, ack_statut, 0, 0, 0, 0};
+        envoyer(BENCH_ID(0xE2, 0x06), d, 4);
+        ack_attente = 0;
+        return;
+    }
     for (unsigned k = 0; k < NB_TRAMES; k++) {           /* tourniquet : une trame due au plus par appel */
         bench_trame_t* t = &trames[prochaine];
         prochaine = (uint8_t)((prochaine + 1u) % NB_TRAMES);
         if ((uint32_t)(now - t->dernier) < t->periode_ms) continue;
-        uint32_t ts = CAN_TSTAT(CAN0);
-        uint8_t libres = (uint8_t)(((ts & CAN_TSTAT_TME0) ? 1 : 0) + ((ts & CAN_TSTAT_TME1) ? 1 : 0) + ((ts & CAN_TSTAT_TME2) ? 1 : 0));
-        if (libres < 2) {                                /* jamais d'attente : une boîte reste aux trames de l'afficheur */
+        if (boites_libres() < 2) {                                /* jamais d'attente : une boîte reste aux trames de l'afficheur */
             /* trame gardée due et réessayée aux tours suivants ; perdue seulement après une période entière de retard
                (26/10 : la marquer envoyée faisait sauter E201-E205 à chaque fois, dues en même temps que E200) */
             if ((uint32_t)(now - t->dernier) >= 2u * t->periode_ms) { t->dernier = now; lost++; }
@@ -209,12 +336,10 @@ void bench_can_poll(void)
         }
         t->dernier = now;
         uint32_t c0 = DWT->CYCCNT;
-        can_trasnmit_message_struct m;
-        m.tx_sfid = 0; m.tx_efid = BENCH_ID(t->idx, t->sub); m.tx_ff = CAN_FF_EXTENDED; m.tx_ft = CAN_FT_DATA;
-        for (int i = 0; i < 8; i++) m.tx_data[i] = 0;
-        m.tx_data[0] = t->seq++;
-        m.tx_dlen = remplir(t, m.tx_data);
-        if (m.tx_dlen) can_message_transmit(CAN0, &m);
+        uint8_t d[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+        d[0] = t->seq++;
+        uint8_t dlen = remplir(t, d);
+        if (dlen) envoyer(BENCH_ID(t->idx, t->sub), d, dlen);
         uint32_t c = DWT->CYCCNT - c0;
         if (c > cycles_max) cycles_max = c > 65535u ? 65535u : (uint16_t)c;
         return;

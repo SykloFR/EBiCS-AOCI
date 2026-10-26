@@ -25,6 +25,8 @@
 #define FAULT_TEMP_SENSOR     15   /* sonde de temperature absente ou hors plage (defaut 15 de l'origine) */
 #define FAULT_STARTUP_ADC     20   /* nouveau : declenchement ADC absent au demarrage */
 #define FAULT_CPU_EXCEPTION   21   /* nouveau : HardFault / BusFault / UsageFault / MemManage / NMI */
+#define FAULT_BENCH_HEARTBEAT 30   /* build de banc : heartbeat CAN du PC perdu (> 300 ms) pendant un essai lancé par CAN */
+#define FAULT_BENCH_ESTOP     31   /* build de banc : arrêt d'urgence reçu par CAN (0x1DF0E000) */
 
 extern volatile uint8_t safety_fault_code_latched;
 

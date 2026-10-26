@@ -1,7 +1,10 @@
 /*
  * bench_can.h : télémétrie CAN de banc (porte 4, livrable B), build de banc seulement (BENCH_BUILD).
  *
- * Émission seule dans cette étape (T1) : aucune commande reçue, aucun effet sur la commande moteur.
+ * T1 : télémétrie (émission). T2 : commandes du PC de banc, lues dans la boucle principale (aucune interruption) :
+ *   0x1DF0E000 ESTOP (défaut 31 verrouillé), 0x1DF0E001 HEARTBEAT (20 Hz attendus), 0x1DF0E002 CMD [opcode, cmd_seq, ...] :
+ *   0x10 OL_SET (angle u16 = deg × 65536 / 360, u_d u8) lance ou règle l'outil vecteur fixe, 0x11 OL_STOP.
+ *   Réponse E206 : seq, opcode, cmd_seq, statut. Voir bench_can.c pour les règles de sécurité.
  * Nœud source 0x1E (contrôleur en mode banc), cible 0x1D (PC de banc), op 0 : ID = 0x1EE8 << 16 | index << 8 | sub.
  * Priorité la plus basse du bus (11 bits de tête 0x77C) ; ni 0x12, ni 0x13, ni 0x1F : le bootloader et l'afficheur
  * ne les visent pas. Octet 0 = numéro de séquence par trame, entiers en petit-boutiste.
