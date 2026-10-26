@@ -265,6 +265,22 @@ int32_t bat_current_offset = CAL_BAT_I_OFFSET;
    injecte a 0 : les valeurs lues ne sont pas des courants, l'ISR ne les passe pas au trip. */
 volatile uint8_t offset_cal_active = 0;
 volatile int16_t offset_cal_ph[3] = {0, 0, 0};   /* derniere mesure bras bas ferme (ph1, ph2, ph3), meme rejetee : lecture SWD */
+/* PORTE 4 (26/10/2026, condition de Fangyan pour le home trainer) : la calibration ferme un MOSFET bas par phase ; elle ne se
+   fait que roue arretee : aucun changement des entrees Hall PC6-8 depuis 50 ms et vitesse nulle. Sinon elle est reportee
+   (boucle lente) et MOE est refuse tant qu'elle n'a pas reussi (offsets_valides, teste dans pwm_enable_safe). */
+volatile uint8_t offsets_valides = 0;
+volatile uint16_t hall_stable_ticks = 0;          /* ticks de 4 kHz sans changement de PC6-8 (reg_ADC_processing) */
+static uint8_t hall_prec = 0xFF;
+#define HALL_STABLE_TICKS 200u                    /* 50 ms a 4 kHz */
+
+static void suivre_hall(void)
+{
+    uint8_t h = (uint8_t)((GPIO_ISTAT(GPIOC) >> 6) & 0x07u);
+    if (h != hall_prec) { hall_prec = h; hall_stable_ticks = 0; }
+    else if (hall_stable_ticks < 0xFFFFu) hall_stable_ticks++;
+}
+
+static uint8_t roue_arretee(void) { return hall_stable_ticks >= HALL_STABLE_TICKS && MS.Speedx100 == 0; }
 
 /* CHCTL2 (CCER) en marche : CH0..CH2 hauts actifs hauts, bas actifs bas (bas inverses), CH3 sans sortie, comme l'origine */
 #define CHCTL2_RUN 0x0DDDU
@@ -289,6 +305,7 @@ static uint8_t offset_cal_phase(uint32_t chctl2, uint32_t adc, int32_t *off)
     for (int i = 0; ok && i < 40; i++) {
         reg_ADC_flag = 0;
         if(!wait_reg_adc_flag()) ok = 0;
+        fwdgt_counter_reload();                 /* calibration reportee : appelee aussi chien de garde en marche */
     }
     for (int i = 0; ok && i < 64; i++) {
         reg_ADC_flag = 0;
@@ -303,6 +320,7 @@ static uint8_t offset_cal_phase(uint32_t chctl2, uint32_t adc, int32_t *off)
     for (int i = 0; i < 40; i++) {              /* 10 ms MOE = 0 entre deux phases, comme l'origine */
         reg_ADC_flag = 0;
         if(!wait_reg_adc_flag()) break;
+        fwdgt_counter_reload();
     }
     return ok;
 }
@@ -523,8 +541,16 @@ int main(void)
        offsets de depart et MOE = 0 : il verrouillait le defaut 3 et la calibration etait sautee (diagnostic trompeur). Le trip
        n'evalue plus les courants que MOE = 1, hors calibration. Pas de calibration avec un defaut deja verrouille (21 apres un
        reset logiciel, 20) : elle exige MOE = 1. */
-    if(!safety_is_latched() && !calibrate_current_offsets()){
-    	safety_fault(FAULT_OFFSET);
+    /* PORTE 4 (26/10/2026) : roue arretee exigee (Hall stable 50 ms, vitesse nulle), sinon calibration reportee a la boucle
+       lente et MOE refuse d'ici la. */
+    for (int i = 0; i < (int)HALL_STABLE_TICKS + 1; i++) {
+    	reg_ADC_flag=0;
+    	if(!wait_reg_adc_flag()){ safety_fault(FAULT_STARTUP_ADC); break; }
+    	suivre_hall();
+    }
+    if(!safety_is_latched() && roue_arretee()){
+    	if(calibrate_current_offsets()) offsets_valides = 1;
+    	else safety_fault(FAULT_OFFSET);
     }
 
 	helper=((float)1.0/((float)1.0+(float)MP.Cadence_exponent));
@@ -614,6 +640,13 @@ int main(void)
             	//toggle speed pin
             	//gpio_bit_write(GPIOB, GPIO_PIN_0,(bit_status)(1-gpio_input_bit_get(GPIOB, GPIO_PIN_0)));
             	if(Speed_counter>20000) MS.Speedx100=0;
+            	/* PORTE 4 : calibration reportee (roue en mouvement au demarrage) : faite des que la roue est arretee, pont coupe */
+            	if(!offsets_valides && !safety_is_latched() && !ui_8_PWM_ON_Flag && roue_arretee()){
+            		fwdgt_counter_reload();
+            		if(calibrate_current_offsets()) offsets_valides = 1;
+            		else safety_fault(FAULT_OFFSET);
+            		fwdgt_counter_reload();
+            	}
 				slow_loop_counter = 0;
 
 				if(adc_value[5]<2800)shutoffcounter++; //raw value is 4095 without button pressed, about 3300 with "down" button pressed and about 2400 with on/off button pressed.
@@ -1439,6 +1472,7 @@ void reg_ADC_processing(void)
 	if(bench_ol_keepalive) bench_ol_keepalive--;   /* 4 kHz : 8000 = 2 s sans rafraichissement SWD avant arret de l'outil */
 	bench_can_sample(i16_ph1_current, i16_ph2_current, i16_ph3_current);   /* courants efficaces de la trame E100 */
 #endif
+	suivre_hall();                                  /* garde de calibration : Hall stable 50 ms */
 	battery_current_cumulated-=battery_current_cumulated>>6;
 	battery_current_cumulated+= (adc_value[0]-bat_current_offset);   /* REVUE-PUISSANCE P8 : offset mesure au demarrage */
 	MS.Battery_Current=(int32_t)((float)(battery_current_cumulated>>6)*CAL_BAT_I); //Battery current in mA
@@ -1805,7 +1839,7 @@ static uint8_t pwm_enable_safe(void)
 	timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_1,_T>>1);
 	timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_2,_T>>1);
 	__disable_irq();
-	ok = !safety_is_latched();
+	ok = !safety_is_latched() && offsets_valides;     /* PORTE 4 : jamais MOE sans offsets calibres roue arretee */
 	if(ok) TIMER_CCHP(TIMER0) |= (uint32_t)TIMER_CCHP_POEN;
 	__enable_irq();
 	return ok;

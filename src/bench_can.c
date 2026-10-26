@@ -17,9 +17,11 @@
  *   E203  1 Hz  + au démarrage (hello) : version (u16), hash git court (u32), macros banc (u8 : b0 BENCH_NO_EEPROM,
  *               b1 TEMP_SENSOR_REQUIRED, b2 CURRENT_SIGN < 0, b3 arbre git modifié)
  *   E204  1 Hz  PH_CURRENT_MAX, PH_CURRENT_TRIP, ilim (u8, pts), _U_MAX / 8 (u8), VOLTAGE_MIN (u16, pt), BENCH_OL_UD_MAX (u8)
- *   E205  1 Hz  offsets bras bas fermé ph1, ph2, ph3 (u16, pt), état (b0 dans la plage, b1 appliqués)
+ *   E205  1 Hz  offsets bras bas fermé ph1, ph2, ph3 (u16, pt), état (b0 dans la plage, b1 appliqués, b2 calibration
+ *               faite (MOE autorisé), b3 roue arrêtée (Hall stable 50 ms et vitesse nulle), b4 état Hall valide 1 à 6)
  *   E206  sur commande : opcode (u8), cmd_seq (u8), statut (u8 : 0 accepté, 1 refusé sans heartbeat depuis 500 ms,
- *               2 refusé défaut verrouillé, 3 refusé frein ou demande d'assistance, 4 commande invalide)
+ *               2 refusé défaut verrouillé, 3 refusé frein ou demande d'assistance, 4 commande invalide,
+ *               5 refusé offsets non calibrés : roue jamais arrêtée depuis le démarrage)
  *
  * Commandes (T2), reçues par 2 filtres en liste exacte vers la FIFO0, lues ici depuis la boucle principale (aucune
  * interruption ajoutée). Règles :
@@ -61,6 +63,8 @@ extern volatile uint8_t ui_8_PWM_ON_Flag;
 extern volatile uint16_t adc_value[9];
 extern uint32_t boot_reset_flags;
 extern volatile int16_t offset_cal_ph[3];
+extern volatile uint8_t offsets_valides;
+extern volatile uint16_t hall_stable_ticks;
 extern volatile uint8_t bench_ol_enable;
 extern volatile uint8_t bench_ol_active;
 extern volatile int16_t bench_ol_ud;
@@ -183,6 +187,7 @@ static void commande(const can_receive_message_struct* m, uint32_t now)
     }
     if (op != OP_OL_SET || m->rx_dlen < 5) { repondre(op, seq, 4); return; }
     if (safety_is_latched()) { repondre(op, seq, 2); return; }
+    if (!offsets_valides) { repondre(op, seq, 5); return; }
     if (!hb_present(now) || (uint32_t)(now - hb_debut) < HB_ARMEMENT_MS) { repondre(op, seq, 1); return; }
     if (MS.brake_active_flag || MS.i_q_setpoint) { repondre(op, seq, 3); return; }
     uint16_t angle = (uint16_t)(m->rx_data[2] | (m->rx_data[3] << 8));
@@ -292,8 +297,14 @@ static uint8_t remplir(const bench_trame_t* t, uint8_t* d)
         return 8;
     case 0xE205:
         put16(d + 1, offset_cal_ph[0]); put16(d + 3, offset_cal_ph[1]); put16(d + 5, offset_cal_ph[2]);
-        d[7] = (uint8_t)(offsets_ok()
-                         | ((ADC_IOFF0(ADC2) & 0xFFFu) == (uint32_t)offset_cal_ph[0] ? 2u : 0u));
+        {
+            uint32_t h = (GPIO_ISTAT(GPIOC) >> 6) & 0x07u;
+            d[7] = (uint8_t)(offsets_ok()
+                             | ((ADC_IOFF0(ADC2) & 0xFFFu) == (uint32_t)offset_cal_ph[0] ? 2u : 0u)
+                             | (offsets_valides ? 4u : 0u)
+                             | (hall_stable_ticks >= 200u && MS.Speedx100 == 0 ? 8u : 0u)
+                             | (h != 0u && h != 7u ? 0x10u : 0u));
+        }
         return 8;
     default:
         return 0;

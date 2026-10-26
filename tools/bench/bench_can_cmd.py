@@ -16,7 +16,8 @@ from bench_can_decode import decode  # noqa: E402
 ID_ESTOP, ID_HB, ID_CMD = 0x1DF0E000, 0x1DF0E001, 0x1DF0E002
 OP_OL_SET, OP_OL_STOP = 0x10, 0x11
 STATUTS = {0: "accepté", 1: "refusé : heartbeat absent ou < 500 ms", 2: "refusé : défaut verrouillé",
-           3: "refusé : frein ou demande d'assistance", 4: "refusé : commande invalide"}
+           3: "refusé : frein ou demande d'assistance", 4: "refusé : commande invalide",
+           5: "refusé : offsets non calibrés (roue jamais arrêtée)"}
 
 
 class Banc:
