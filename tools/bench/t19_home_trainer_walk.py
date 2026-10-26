@@ -5,7 +5,7 @@ ou coupe-circuit : le PC n'est pas un arrêt d'urgence). Build de banc avec inc/
 Pré-contrôles par la télémétrie : défaut 0, calibration faite, état Hall valide, roue arrêtée. Puis WALK_START(ilim),
 journal de toutes les trames pendant DUREE s, WALK_STOP, MOE vérifié à 0. Arrêt immédiat (WALK_STOP, puis ESTOP si MOE
 reste à 1) si : défaut, courant batterie >= IBAT_MAX, crête de phase >= 15 pts sur 3 trames E100 de suite (trip à 16),
-T contrôleur >= 60 °C, vitesse > 8 km/h, i_q > ilim + 3 pts sur 1 s.
+T contrôleur >= 60 °C, vitesse > 8 km/h, |i_q| > ilim + 3 pts sur 1 s. Fin signalée si MOE retombe sans défaut.
 Usage : python tools/bench/t19_home_trainer_walk.py SORTIE_PREFIXE ILIM_PTS [duree_s=10] [ibat_max_A=1.5]"""
 import csv, json, os, sys, time
 sys.path.insert(0, os.path.dirname(__file__))
@@ -42,14 +42,18 @@ with Banc() as b:
                          ibat=e101.get("ibat"), vitesse=e102.get("vitesse"), erps=e102.get("erps"),
                          defaut=e200.get("defaut"), t_ctrl=e201.get("t_ctrl"))
             journal.append(ligne)
-            crete_n = crete_n + 1 if (ligne["crete"] or 0) >= 15 else 0
-            depasse_t = (depasse_t or time.time()) if (ligne["iq"] or 0) > ILIM + 3 else None
+            # crete comptee seulement pont actif : MOE = 0, les noeuds flottent (valeurs sans sens, 255)
+            crete_n = crete_n + 1 if ligne["moe"] and (ligne["crete"] or 0) >= 15 else 0
+            # consigne de signe REVERSE (negative ici) : depassement en valeur absolue
+            depasse_t = (depasse_t or time.time()) if abs(ligne["iq"] or 0) > ILIM + 3 else None
             if ligne["defaut"]:
                 arret = f"défaut {ligne['defaut']}"
             elif (ligne["ibat"] or 0) >= IBAT_MAX:
                 arret = f"courant batterie {ligne['ibat']} A"
             elif crete_n >= 3:
                 arret = f"crête de phase {ligne['crete']} pts sur 3 trames"
+            elif journal[0]["moe"] and not ligne["moe"]:
+                arret = "MOE retombé sans défaut (arrêt EBiCS : moteur sans front Hall pendant 1 s, ou fin de walk)"
             elif (ligne["t_ctrl"] or 0) >= 60:
                 arret = f"T contrôleur {ligne['t_ctrl']} °C"
             elif (ligne["vitesse"] or 0) > 8:
