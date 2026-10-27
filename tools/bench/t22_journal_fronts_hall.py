@@ -6,6 +6,9 @@ avance nette en secteurs, allers-retours sur une meme frontiere (rotor qui oscil
 Si MOE retombe, le verdict attend une E200 recue APRES le front MOE (0,5 s au plus) : defaut si elle en porte un, arret
 EBiCS sans defaut seulement si elle dit 0, indetermine sinon. Le CSV porte l'heure de reception de chaque front (t_rx_s,
 depuis WALK_START).
+Capture avant trip (E20B, build e7ed5b5 + capture) : les PT_N dernieres periodes PWM vues par le trip, relues apres l'arret
+et ecrites dans PREFIXE_avant_trip.csv (entrees du trip ph1..ph3 en pts, resultat de F4, 6-step) ; absente des builds
+anterieurs (rien n'est ecrit).
 Conditions : moteur monte, chaine retiree, personne sur le velo, alim limitee, arret physique a portee.
 Usage : python tools/bench/t22_journal_fronts_hall.py PREFIXE [ilim_pts=5] [duree_s=3]"""
 import csv, os, sys, time
@@ -55,8 +58,10 @@ with Banc() as b:
         print("WALK_STOP :", STATUTS.get(b.walk_stop(), "pas de reponse"), flush=True)
         t_stop = time.monotonic()
     print(f"arret : {arret or f'duree {DUREE} s'} apres {time.time() - t0:.2f} s", flush=True)
-    time.sleep(3.0)                                       # plus de deux tours de E20A (64 rangs a 50 Hz)
+    time.sleep(4.0)                       # plus de deux tours de E20A (64 rangs a 50 Hz), un tour et demi de E20B (128 rangs)
     seq = b.dernier.get(0xE20A, {}).get("hj_seq")
+    pt_seq = b.dernier.get(0xE20B, {}).get("pt_seq")
+    avant_trip = sorted((v for (s, r), v in b.avant_trip.items() if s == pt_seq), key=lambda v: v["rang"])
     fronts = sorted((v for (s, r), v in b.fronts.items() if s == seq), key=lambda v: v["rang"])
     defaut = b.defaut_apres(t_stop)                       # E200 recue apres WALK_STOP ; None : indetermine
     defaut = "indetermine (aucune E200 apres WALK_STOP)" if defaut is None else defaut
@@ -86,3 +91,20 @@ print(f"bilan : {av} avant, {ar} arriere, {hors} hors sequence ; avance nette {a
 etats = sorted({c % 10 for c in cas} | {c // 10 for c in cas})
 print(f"etats vus : {etats} ; duree mediane entre fronts "
       f"{sorted(v['tics'] for v in fronts)[len(fronts) // 2] * 0.002 if fronts else 0:.3f} ms")
+
+F4 = {0: "appliquee", 1: "refus masque", 2: "refus saturation", 3: "refus mode commun"}
+if avant_trip:
+    with open(PREFIXE + "_avant_trip.csv", "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(["rang", "ph1", "ph2", "ph3", "f4", "six_step"])
+        for v in avant_trip:
+            w.writerow([v["rang"], *v["ph"], "non evaluee" if v["f4_non_evaluee"] else F4[v["f4"]], v["six_step"]])
+    n = len(avant_trip)
+    crete = max(max(abs(x) for x in v["ph"]) for v in avant_trip)
+    refus = {F4[k]: sum(1 for v in avant_trip if not v["f4_non_evaluee"] and v["f4"] == k) for k in (1, 2, 3)}
+    print(f"capture avant trip n {pt_seq} : {n} periodes (rangs 0..{avant_trip[-1]['rang']}, manquants "
+          f"{avant_trip[-1]['rang'] + 1 - n}), crete |ph| {crete} pts, refus F4 {refus}")
+    print(" rang   ph1  ph2  ph3  F4")
+    for v in avant_trip[-12:]:
+        print(f"{v['rang']:5d} {v['ph'][0]:5d} {v['ph'][1]:4d} {v['ph'][2]:4d}  "
+              f"{'non evaluee' if v['f4_non_evaluee'] else F4[v['f4']]}")

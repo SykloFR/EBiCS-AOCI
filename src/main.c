@@ -318,6 +318,14 @@ volatile uint8_t bench_precharge_ms = 0;
 volatile uint8_t hj_case[HJ_N], hj_fl[HJ_N], hj_ang[HJ_N];
 volatile uint16_t hj_tics[HJ_N];
 volatile uint8_t hj_idx = 0, hj_n = 0, hj_gel = 1, hj_seq = 0;
+/* PORTE 4, capture avant trip (27/10/2026 : walk 5 pts, defaut 3 a vitesse stable, cause inconnue) : les PT_N dernieres
+   periodes PWM vues par le trip pendant que le pont est actif. Par periode : les trois entrees du trip (f4_entrees_trip,
+   saturees a +-127 pts) et un etat (b0-1 resultat F4 f4_resultat_t, b2 F4 non evaluee, b3 6-step). Remise a zero a chaque
+   MOE = 1 (pwm_enable_safe), figee au defaut verrouille (la periode du trip est la derniere) ou a l'arret du pont
+   (pwm_disable). Relue par CAN (E20B). Diagnostic seul : ne change aucune decision. */
+volatile int8_t pt_ph[3][PT_N];
+volatile uint8_t pt_st[PT_N];
+volatile uint8_t pt_idx = 0, pt_n = 0, pt_gel = 1, pt_seq = 0;
 #endif
 
 static void suivre_hall(void)
@@ -1905,7 +1913,7 @@ void ADC0_1_IRQHandler(void)
        d'EBiCS), si une valeur brute est en butee, ou si le mode commun depasse F4_MC_MAX ; les courants restent alors
        intacts et le trip voit la lecture (f4_entrees_trip, plus bas). Brut = registre injecte (CURRENT_SIGN x courant)
        + offset injecte (ADC_IOFF0). f4_mes : les trois voies apres F4, avant la reconstruction d'EBiCS. */
-    uint8_t f4_m = 0;
+    uint8_t f4_m = 0, f4_st = 4u;                  /* f4_st : resultat de F4 pour la capture avant trip (4 = non evaluee) */
     if(!offset_cal_active){
     	f4_m = f4_masque;
     	int32_t b1 = CURRENT_SIGN * i16_ph1_current + (int32_t)(ADC_IOFF0(ADC2) & ADC_IOFFX_IOFF);
@@ -1913,6 +1921,7 @@ void ADC0_1_IRQHandler(void)
     	int32_t b3 = CURRENT_SIGN * i16_ph3_current + (int32_t)(ADC_IOFF0(ADC0) & ADC_IOFFX_IOFF);
     	f4_resultat_t r = f4_mode_commun(&i16_ph1_current, &i16_ph2_current, &i16_ph3_current, b1, b2, b3, f4_m);
     	if(r != F4_APPLIQUEE && f4_refus[r] < 0xFFFFu) f4_refus[r]++;
+    	f4_st = (uint8_t)r;
     }
     const int16_t f4_mes[3] = {i16_ph1_current, i16_ph2_current, i16_ph3_current};
 #endif
@@ -1963,7 +1972,16 @@ void ADC0_1_IRQHandler(void)
     	/* F4 : trois voies lisibles -> par phase, la plus grande de la reconstruction et de la mesure (f4_mode_commun.h) */
     	int16_t f4_t[3];
     	f4_entrees_trip(f4_t, i16_ph1_current, i16_ph2_current, f4_mes, f4_m);
+    	if(!pt_gel){                              /* capture avant trip : la periode est enregistree avant le test */
+    		pt_ph[0][pt_idx] = CAP_SAT(f4_t[0]);
+    		pt_ph[1][pt_idx] = CAP_SAT(f4_t[1]);
+    		pt_ph[2][pt_idx] = CAP_SAT(f4_t[2]);
+    		pt_st[pt_idx] = (uint8_t)(f4_st | (ui8_6step_flag ? 8u : 0u));
+    		pt_idx = (uint8_t)((pt_idx + 1u) % PT_N);
+    		if(pt_n < PT_N) pt_n++;
+    	}
     	safety_check_phase_currents(f4_t[0], f4_t[1], f4_t[2]);
+    	if(safety_is_latched()) pt_gel = 1;
 #else
     	safety_check_phase_currents(i16_ph1_current, i16_ph2_current, (int16_t)(-(i16_ph1_current + i16_ph2_current)));
 #endif
@@ -2046,6 +2064,7 @@ static uint8_t pwm_enable_safe(void)
 		if(bench_precharge_ms) TIMER_CHCTL2(TIMER0) = 0U;
 		cap_trip = 0xFF; cap_n = 0; cap_seq++;
 		hj_idx = 0; hj_n = 0; hj_seq++; hj_gel = 0;
+		pt_idx = 0; pt_n = 0; pt_seq++; pt_gel = 0;
 	}
 #endif
 	if(ok) TIMER_CCHP(TIMER0) |= (uint32_t)TIMER_CCHP_POEN;
@@ -2073,6 +2092,7 @@ static void pwm_disable(void)
 	ui_8_PWM_ON_Flag=0;
 #ifdef BENCH_BUILD
 	hj_gel = 1;                                   /* journal des fronts Hall fige a l'arret du pont */
+	pt_gel = 1;                                   /* capture avant trip figee a l'arret du pont */
 #endif
 	timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_0,_T>>1);
 	timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_1,_T>>1);
@@ -2201,6 +2221,10 @@ void get_standstill_position(){
 	  delay_1ms(25);
 	  ui8_hall_state = (GPIO_ISTAT(GPIOC)>>6)&0x07;
 #ifdef BENCH_BUILD
+	/* Porte 4, 27/10/2026 (walk 3 pts apres mise sous tension : a-coup puis arret) : ui8_hall_state_old vaut 0 tant
+	   qu'aucun front n'a ete vu ; le premier front donnait le cas 0y, absent du switch de TIMER2_IRQHandler : angle et sens
+	   non mis a jour, le rotor se calait avant le front suivant. L'etat a l'arret devient l'etat precedent. */
+	if (ui8_hall_state >= 1u && ui8_hall_state <= 6u) ui8_hall_state_old = ui8_hall_state;
 	/* Porte 4, 27/10/2026 : a l'arret le 6-step applique hall - MP.reverse*30 deg. Avec MP.reverse = 1 (couple vers theta
 	   decroissant), on entre dans le secteur par son bord HAUT : prendre ce bord pour viser le milieu du secteur
 	   (simulation : couple avant >= 83 % sur les 6 etats, contre 47 % en moyenne et ~0 pres du bord avec le bord bas). */

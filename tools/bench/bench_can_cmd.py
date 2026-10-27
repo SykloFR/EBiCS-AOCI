@@ -57,6 +57,7 @@ class Banc:
         self.t_moe0 = None                # time.monotonic de la premiere E000 a MOE 0 apres une E000 a MOE 1 (None : pont actif)
         self.capture = {}                 # E208 : rang -> (cap_seq vu en E209 a la reception, (ph1, ph2, ph3))
         self.fronts = {}                  # E20A : (hj_seq, rang) -> trame decodee + t_rx (journal des fronts Hall)
+        self.avant_trip = {}              # E20B : (pt_seq, rang) -> trame decodee (capture des periodes avant le trip)
         self._verrou = threading.Lock()
         self._hb_actif = threading.Event()
         self._fin = threading.Event()
@@ -97,6 +98,9 @@ class Banc:
                 if cle == 0xE20A and self.dernier[cle]["rang"] != 0xFF:
                     d = self.dernier[cle]
                     self.fronts[(d["hj_seq"], d["rang"])] = dict(d, t_rx=t)   # t_rx : time.monotonic a la reception
+                if cle == 0xE20B and self.dernier[cle]["rang"] != 0xFF and self.dernier[cle]["figee"]:
+                    d = self.dernier[cle]
+                    self.avant_trip[(d["pt_seq"], d["rang"])] = d
                 if cle == 0xE208:
                     d, sq = self.dernier[cle], self.dernier.get(0xE209, {}).get("cap_seq")
                     self.capture[d["rang"]], self.capture[d["rang"] + 1] = (sq, d["a"]), (sq, d["b"])

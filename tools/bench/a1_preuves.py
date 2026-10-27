@@ -135,6 +135,17 @@ halls = ("Hall_13", "Hall_32", "Hall_26", "Hall_64", "Hall_45", "Hall_51")
 print("get_standstill_position lit MP (reverse) et les six Hall_xy :",
       "OK" if lit_adresse(gs, "MP") and all(lit_adresse(gs, h) for h in halls) else "A VERIFIER (inline ?)")
 print("simulation sur les tables du depot : python -I tools/bench/simu_sens_patch.py (critere : couple avant >= 0,80)")
+print("premier front (27/10) : get_standstill_position ecrit ui8_hall_state_old :",
+      "OK" if lit_adresse(gs, "ui8_hall_state_old") else "A VERIFIER (inline ?)")
+
+section("Capture avant trip (27/10/2026, E20B)")
+print("ADC0_1_IRQHandler lit pt_gel et ecrit pt_ph / pt_st :",
+      "OK" if all(lit_adresse(isr, s) for s in ("pt_gel", "pt_ph", "pt_st")) else "A VERIFIER")
+print("pwm_disable fige la capture (pt_gel) :", "OK" if lit_adresse(pd, "pt_gel") else "A VERIFIER (inline ?)")
+print("pwm_enable_safe relance la capture (pt_seq) :", "OK" if lit_adresse(pes, "pt_seq") else "A VERIFIER (inline ?)")
+for s in ("pt_ph", "pt_st"):
+    v = syms.get(s)
+    print(f"{s:10s} " + (f"{v[0]:#010x} taille {v[1]} octets" if v else "absent"))
 
 section("Table de vecteurs (debut de ebics.bin) : entrees qui tombent sur Default_Handler")
 names = []
