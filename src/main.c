@@ -45,6 +45,9 @@ OF SUCH DAMAGE.
 #include "f4_mode_commun.h"
 #include "bench_walk_bride.h"
 #include "variante.h"
+#ifdef ROUTE_BUILD
+#include "pedalier_diag.h"
+#endif
 #endif
 /* variables partagees avec les interruptions / le DMA : volatile obligatoire en -Os (EBiCS est compile en -O0,
    sans quoi while(!reg_ADC_flag); devient une boucle infinie et tout le code apres est supprime) */
@@ -312,6 +315,12 @@ volatile uint8_t offset_cal_pont = 0;             /* vrai pendant la mesure pont
 /* PORTE 4, correctif F2 : variante lue au demarrage et seuils en points a son echelle */
 volatile uint8_t bench_variante = 0;
 volatile uint8_t variante_repli = 0;              /* 1 : octet vierge, variante de repli du build route (E203 b4) */
+#ifdef ROUTE_BUILD
+/* diagnostic du pedalier (27/10, inc/pedalier_diag.h, trame E20F) : fronts de PC12 et PD2 a 4 kHz (reg_ADC_processing,
+   boucle principale comme l'envoi) et interruptions EXTI12 vues par EBiCS. Aucune action sur la commande. */
+pedalier_diag_t pedalier_diag = {0, 0, 0, 0};
+volatile uint16_t pedalier_exti12 = 0;
+#endif
 uint8_t bench_ph_max = PH_CURRENT_MAX, bench_walk_max = BENCH_WALK_ILIM_MAX;
 /* PORTE 4, correctif F4 (voir inc/f4_mode_commun.h) : voies lisibles pour la PROCHAINE conversion injectee, tenu par le code
    qui place le declenchement CC4 (dyn_adc_state, offset_cal_pont_50) ; au reset CC4 = TRIGGER_DEFAULT, trois voies lisibles.
@@ -1642,6 +1651,9 @@ void EXTI10_15_IRQHandler(void)
 {
     if(RESET != exti_interrupt_flag_get(EXTI_12)) {
     	PAS_flag = 1;
+#ifdef ROUTE_BUILD
+    	pedalier_exti12++;                       /* diagnostic du pedalier (E20F) */
+#endif
         exti_interrupt_flag_clear(EXTI_12);
     }
 }
@@ -1700,6 +1712,10 @@ void reg_ADC_processing(void)
 	bench_can_sample(i16_ph1_current, i16_ph2_current, i16_ph3_current);   /* courants efficaces de la trame E100 */
 #endif
 	suivre_hall();                                  /* garde de calibration : Hall stable 50 ms */
+#ifdef ROUTE_BUILD
+	pedalier_echantillon(&pedalier_diag, (uint8_t)((GPIO_ISTAT(GPIOC) >> 12) & 1u),   /* PC12, PD2 : trame E20F */
+	                     (uint8_t)((GPIO_ISTAT(GPIOD) >> 2) & 1u));
+#endif
 	battery_current_cumulated-=battery_current_cumulated>>6;
 	battery_current_cumulated+= (adc_value[0]-bat_current_offset);   /* REVUE-PUISSANCE P8 : offset mesure au demarrage */
 	MS.Battery_Current=(int32_t)((float)(battery_current_cumulated>>6)*CAL_BAT_I); //Battery current in mA

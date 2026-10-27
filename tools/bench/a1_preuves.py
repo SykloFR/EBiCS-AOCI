@@ -245,6 +245,38 @@ if ROUTE:
     print(f"route : {nom_us} lit le niveau d'assistance et la consigne de poussee (MS) :", "OK" if lit_adresse(us, "MS") else "A VERIFIER")
 else:
     print(f"bride erps : {nom_us} lit ui16_erps et ui16_timertics :", "OK" if lit_adresse(us, "ui16_erps") and lit_adresse(us, "ui16_timertics") else "A VERIFIER")
+def fonctions_lisant(sym):
+    """noms des fonctions dont le pool litteral contient l'adresse de sym"""
+    return [m.group(1) for m in re.finditer(r"^[0-9a-f]+ <([^>]+)>:\n(.*?)(?=\n\n)", dis, re.S | re.M)
+            if lit_adresse(m.group(2), sym)]
+
+
+def gpio_istat(corps, base, base_pool=None):
+    """lecture du registre d'entree (decalage 8) d'un port GPIO : adresse en clair, ou une base du pool litteral (base_pool,
+    par defaut le port lui-meme) puis le decalage ; le compilateur adresse GPIOD (0x40011400) depuis GPIOC : #1032 = 0x408"""
+    bp = base if base_pool is None else base_pool
+    return bool(re.search(rf"\.word\s+0x{base + 8:08x}\b", corps)
+                or (re.search(rf"\.word\s+0x{bp:08x}\b", corps) and re.search(rf"#{base + 8 - bp}\]", corps)))
+
+
+if ROUTE:
+    nom_ra = "reg_ADC_processing" if "reg_ADC_processing" in syms else "main"
+    a_ra, t_ra = syms[nom_ra][0], syms[nom_ra][1]
+    ra = run("arm-none-eabi-objdump", "-d", "--no-show-raw-insn", f"--start-address={a_ra:#x}",
+             f"--stop-address={a_ra + t_ra:#x}", ELF)
+    print(f"pedalier (27/10) : {nom_ra} lit GPIOC_ISTAT (0x40011008) et GPIOD_ISTAT (0x40011408), ecrit pedalier_diag :",
+          "OK" if gpio_istat(ra, 0x40011000) and (gpio_istat(ra, 0x40011400) or gpio_istat(ra, 0x40011400, 0x40011000)) and lit_adresse(ra, "pedalier_diag") else "A VERIFIER")
+    a_ex, t_ex = syms["EXTI10_15_IRQHandler"][0], syms["EXTI10_15_IRQHandler"][1]
+    ex = run("arm-none-eabi-objdump", "-d", "--no-show-raw-insn", f"--start-address={a_ex:#x}",
+             f"--stop-address={a_ex + t_ex:#x}", ELF)
+    print("pedalier : EXTI10_15_IRQHandler compte pedalier_exti12 (et leve toujours PAS_flag) :",
+          "OK" if lit_adresse(ex, "pedalier_exti12") and lit_adresse(ex, "PAS_flag") else "A VERIFIER")
+    lecteurs = fonctions_lisant("pedalier_exti12")
+    print(f"pedalier : trame E20F, compteurs lus hors interruption par {lecteurs} :",
+          "OK" if any(f != "EXTI10_15_IRQHandler" for f in lecteurs) and fonctions_lisant("pedalier_diag") else "A VERIFIER")
+else:
+    print("banc : pas de diagnostic du pedalier (pedalier_diag, pedalier_exti12 absents) :",
+          "OK" if "pedalier_diag" not in syms and "pedalier_exti12" not in syms else "A VERIFIER")
 print("regle F4 des entrees du trip : prouvee par le test hote tools/test_f4_mode_commun.c (en-tete reel)")
 
 section("Table de vecteurs (debut de ebics.bin) : entrees qui tombent sur Default_Handler")
