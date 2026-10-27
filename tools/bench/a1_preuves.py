@@ -167,6 +167,8 @@ larg = {e: ((hv[a] - hv[b]) & 0xFFFFFFFF) >> 16 for e, (a, b) in
         {4: ("45", "64"), 5: ("51", "45"), 1: ("13", "51"), 3: ("32", "13"), 2: ("26", "32"), 6: ("64", "26")}.items()}
 print("   largeurs attendues (etat : q16 / deg) :", {e: (q, round(q * 360 / 65536, 1)) for e, q in larg.items()},
       "somme", sum(larg.values()), "(65536 = 360 deg)")
+print("borne de l'interpolation (27/10) : ADC0_1_IRQHandler compte bornes_interp et lit uint32_tics_filtered :",
+      "OK" if lit_adresse(isr_complet, "bornes_interp") and lit_adresse(isr_complet, "uint32_tics_filtered") else "A VERIFIER")
 rpi = func("runPIcontrol", 0)
 print("runPIcontrol ecrit pt_cercle (limitation en cercle) :", "OK" if lit_adresse(rpi, "pt_cercle") else "A VERIFIER")
 for s in ("pt_ph", "pt_st", "pt_ang", "pt_ud", "pt_uq", "pt_x", "pt_av"):

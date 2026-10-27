@@ -353,6 +353,10 @@ volatile uint16_t pepins_tenus = 0;               /* nombre de periodes tenues (
    par secteur (10923 = 60 deg en q31 >> 16) alors que les secteurs releves en A5 font 54,5 a 64 deg. TIMER2_IRQHandler
    pose a chaque front la largeur du secteur de l'etat atteint (frontiere haute - frontiere basse, q31 >> 16). */
 volatile uint16_t secteur_q16 = 10923u;
+/* Borne de l'interpolation (27/10/2026, correctif-borne-interpolation-attendu-20261027.md) : quand le rotor ralentit
+   (moteur charge), la duree depuis le front depasse la duree de reference filtree et l'angle sortait du secteur (26,6 deg
+   au-dela, puis defaut 3). Fraction bornee a 1 : l'angle s'arrete a la frontiere de sortie jusqu'au front suivant. */
+volatile uint16_t bornes_interp = 0;              /* periodes interpolees bornees (lecture SWD) */
 /* Capture avant F4 (27/10/2026, capture-avant-f4-attendu-20261027.md) : pour la meme periode que pt_ph, les trois courants
    apres offset et AVANT f4_mode_commun (i8, satures) ; leur somme separe un decalage de mesure d'un vrai courant
    continu (somme nulle). Relue par CAN (E20D). */
@@ -2065,6 +2069,13 @@ void ADC0_1_IRQHandler(void)
 	if (ui16_timertics > (SIXSTEPTHRESHOLD * 6) >> 2)
 		ui8_6step_flag = 1;
 
+#ifdef BENCH_BUILD
+    uint32_t t_interp = ui16_tim2_recent;          /* borne de l'interpolation : fraction <= 1 */
+    if (t_interp > (uint32_tics_filtered >> 3)) {
+    	t_interp = uint32_tics_filtered >> 3;
+    	if (!ui8_6step_flag && bornes_interp < 0xFFFFu) bornes_interp++;
+    }
+#endif
     // extrapolate rotorposition from filtered speed reading
     if(MS.hall_angle_detect_flag){//q31_rotorposition_absolute = q31_rotorposition_hall + (q31_t) ((float)(i8_recent_rotor_direction * (deg_30<<1) * ui16_tim2_recent)/(float)(uint32_tics_filtered>>3));//
 //Speed PLL not implemented yet.
@@ -2079,7 +2090,7 @@ void ADC0_1_IRQHandler(void)
     	q31_rotorposition_absolute = q31_rotorposition_hall + MP.angle_correction +
     									+ (q31_t) (i8_recent_rotor_direction
 #ifdef BENCH_BUILD
-    											* (((int32_t)secteur_q16 * ui16_tim2_recent)   /* largeur reelle du secteur */
+    											* (((int32_t)secteur_q16 * (int32_t)t_interp)   /* largeur reelle, fraction bornee */
 #else
     											* ((10923 * ui16_tim2_recent)
 #endif
