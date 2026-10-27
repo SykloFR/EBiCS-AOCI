@@ -31,6 +31,38 @@ static inline uint8_t pd2_echantillon(pd2_antirebond_t *s, uint8_t brut)
     return n == 0u ? 1u : 0u;
 }
 
+/* Journal des PD2_JN dernieres impulsions validees (diagnostic du 27/10, trame E210) : a chaque front descendant valide,
+   periode depuis le front descendant precedent et duree du niveau valide haut qui le precede (ticks de 4 kHz, satures).
+   Tampon circulaire ecrase en continu ; aucune action sur la commande. */
+#define PD2_JN 64u
+
+typedef struct {
+    uint16_t periode[PD2_JN];
+    uint16_t haut[PD2_JN];
+    uint8_t  idx;            /* prochaine case ecrite */
+    uint8_t  n;              /* entrees valides (<= PD2_JN) */
+    uint8_t  seq;            /* numero d'impulsion (tourne sur 8 bits) */
+    uint8_t  prec;           /* niveau valide de l'echantillon precedent */
+    uint16_t t_periode;      /* ticks depuis le dernier front descendant valide */
+    uint16_t t_haut;         /* ticks au niveau valide haut depuis le dernier front montant valide */
+} pd2_journal_t;
+
+/* a appeler a chaque echantillon apres pd2_echantillon : stable = niveau valide, front = son retour (front descendant) */
+static inline void pd2_journal_echantillon(pd2_journal_t *j, uint8_t stable, uint8_t front)
+{
+    if (j->t_periode < 0xFFFFu) j->t_periode++;
+    if (stable && !j->prec) j->t_haut = 0u;                  /* front montant valide */
+    if (stable && j->t_haut < 0xFFFFu) j->t_haut++;
+    if (front) {
+        j->periode[j->idx] = j->t_periode; j->haut[j->idx] = j->t_haut;
+        j->idx = (uint8_t)((j->idx + 1u) % PD2_JN);
+        if (j->n < PD2_JN) j->n++;
+        j->seq++;
+        j->t_periode = 0u;
+    }
+    j->prec = stable ? 1u : 0u;
+}
+
 /* cadence en tr/min pour une periode en ticks de 4 kHz, 0 si la periode est sous le minimum accepte */
 static inline uint16_t pd2_cadence(uint16_t periode)
 {

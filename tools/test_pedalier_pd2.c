@@ -100,6 +100,50 @@ int main(void)
         if (pd2_cadence((uint16_t)p) > 255) { CHECK(0, "cadence > 255 a %u ticks", p); break; }
     n_ok++;   /* balayage 21..65534 : cadence toujours sur 8 bits (MS.cadence) */
 
+    /* 7. journal des periodes (E210) : impulsions regulieres, ordre chronologique, saturation, rejets */
+    {
+        pd2_antirebond_t s = {0, 0, 0};
+        static pd2_journal_t j;
+        int i, f;
+        for (i = 0; i < 100; i++) { f = pd2_echantillon(&s, 1); pd2_journal_echantillon(&j, s.stable, (uint8_t)f); }
+        /* 100 impulsions : bas 30 echantillons, haut 50 (periode 80), pepin haut de 5 echantillons au milieu du bas */
+        for (int p = 0; p < 100; p++) {
+            for (i = 0; i < 30; i++) {
+                int brut = (i >= 12 && i < 17) ? 1 : 0;
+                f = pd2_echantillon(&s, (uint8_t)brut); pd2_journal_echantillon(&j, s.stable, (uint8_t)f);
+            }
+            for (i = 0; i < 50; i++) { f = pd2_echantillon(&s, 1); pd2_journal_echantillon(&j, s.stable, (uint8_t)f); }
+        }
+        CHECK(j.n == PD2_JN && j.seq == 100, "journal : n %u seq %u", j.n, j.seq);
+        int ok = 1;
+        for (unsigned r = 0; r < PD2_JN; r++) {
+            unsigned k = (j.idx + r) % PD2_JN;
+            if (j.periode[k] != 80 || j.haut[k] != 50) { ok = 0; printf("  rang %u : %u %u\n", r, j.periode[k], j.haut[k]); break; }
+        }
+        CHECK(ok, "journal : periodes 80 et durees hautes 50 sur les 64 rangs");
+        /* arret de 20 s puis une impulsion : periode saturee, duree haute saturee */
+        for (long t = 0; t < 80000; t++) { f = pd2_echantillon(&s, 1); pd2_journal_echantillon(&j, s.stable, (uint8_t)f); }
+        for (i = 0; i < 20; i++) { f = pd2_echantillon(&s, 0); pd2_journal_echantillon(&j, s.stable, (uint8_t)f); }
+        unsigned dern = (j.idx + PD2_JN - 1) % PD2_JN;
+        CHECK(j.periode[dern] == 0xFFFF && j.haut[dern] == 0xFFFF && j.seq == 101,
+              "saturation : %u %u seq %u", j.periode[dern], j.haut[dern], j.seq);
+        /* ordre chronologique : periodes 40, 41, ..., 139 ; les 64 dernieres en ordre */
+        static pd2_journal_t j2;
+        pd2_antirebond_t s2 = {0, 0, 0};
+        for (i = 0; i < 50; i++) { f = pd2_echantillon(&s2, 1); pd2_journal_echantillon(&j2, s2.stable, (uint8_t)f); }
+        for (int p = 0; p < 100; p++) {
+            int per = 40 + p;
+            for (i = 0; i < 20; i++) { f = pd2_echantillon(&s2, 0); pd2_journal_echantillon(&j2, s2.stable, (uint8_t)f); }
+            for (i = 0; i < per - 20; i++) { f = pd2_echantillon(&s2, 1); pd2_journal_echantillon(&j2, s2.stable, (uint8_t)f); }
+        }
+        ok = 1;
+        for (unsigned r = 1; r < PD2_JN; r++) {
+            unsigned k = (j2.idx + r) % PD2_JN, k0 = (j2.idx + r - 1) % PD2_JN;
+            if (j2.periode[k] != j2.periode[k0] + 1 || j2.haut[k] != j2.periode[k] - 20) { ok = 0; break; }
+        }
+        CHECK(ok, "ordre chronologique et duree basse 20 sur 64 rangs");
+    }
+
     printf("== %d verifications OK, %d ECHECS -> %s\n", n_ok, n_ko, n_ko ? "ROUGE" : "VERT");
     return n_ko ? 1 : 0;
 }

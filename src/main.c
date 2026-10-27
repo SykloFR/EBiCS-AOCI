@@ -321,6 +321,7 @@ volatile uint8_t variante_repli = 0;              /* 1 : octet vierge, variante 
    boucle principale comme l'envoi) et interruptions EXTI12 vues par EBiCS. Aucune action sur la commande. */
 pedalier_diag_t pedalier_diag = {0, 0, 0, 0};
 pd2_antirebond_t pd2_ar = {0, 0, 0};              /* cadence sur PD2 (27/10, inc/pedalier_pd2.h) */
+pd2_journal_t pd2_journal;                        /* journal des 64 dernieres periodes de PD2 (diagnostic, E210) */
 volatile uint16_t pedalier_exti12 = 0;
 #endif
 uint8_t bench_ph_max = PH_CURRENT_MAX, bench_walk_max = BENCH_WALK_ILIM_MAX;
@@ -1731,7 +1732,9 @@ void reg_ADC_processing(void)
 	{
 		uint8_t pd2 = (uint8_t)((GPIO_ISTAT(GPIOD) >> 2) & 1u);
 		pedalier_echantillon(&pedalier_diag, (uint8_t)((GPIO_ISTAT(GPIOC) >> 12) & 1u), pd2);   /* PC12, PD2 : trame E20F */
-		if(pd2_echantillon(&pd2_ar, pd2)) PAS_flag = 1;   /* cadence sur PD2 : front descendant tenu 2 ms (27/10) */
+		uint8_t f_pd2 = pd2_echantillon(&pd2_ar, pd2);
+		if(f_pd2) PAS_flag = 1;                          /* cadence sur PD2 : front descendant tenu 2 ms (27/10) */
+		pd2_journal_echantillon(&pd2_journal, pd2_ar.stable, f_pd2);   /* periodes et durees hautes (E210) */
 	}
 #endif
 	battery_current_cumulated-=battery_current_cumulated>>6;

@@ -273,12 +273,15 @@ if ROUTE:
           "OK" if lit_adresse(ex, "pedalier_exti12") and not lit_adresse(ex, "PAS_flag") else "A VERIFIER")
     print(f"cadence PD2 (27/10) : {nom_ra} ecrit pd2_ar et PAS_flag :",
           "OK" if lit_adresse(ra, "pd2_ar") and lit_adresse(ra, "PAS_flag") else "A VERIFIER")
+    lecteurs_j = fonctions_lisant("pd2_journal")
+    print(f"journal des periodes PD2 (E210) : ecrit par {nom_ra}, lu par {lecteurs_j} :",
+          "OK" if lit_adresse(ra, "pd2_journal") and "bench_can_poll" in lecteurs_j else "A VERIFIER")
     lecteurs = fonctions_lisant("pedalier_exti12")
     print(f"pedalier : trame E20F, compteurs lus hors interruption par {lecteurs} :",
           "OK" if any(f != "EXTI10_15_IRQHandler" for f in lecteurs) and fonctions_lisant("pedalier_diag") else "A VERIFIER")
 else:
-    print("banc : pas de diagnostic du pedalier (pedalier_diag, pedalier_exti12 absents) :",
-          "OK" if "pedalier_diag" not in syms and "pedalier_exti12" not in syms else "A VERIFIER")
+    print("banc : pas de diagnostic du pedalier (pedalier_diag, pedalier_exti12, pd2_journal absents) :",
+          "OK" if not any(x in syms for x in ("pedalier_diag", "pedalier_exti12", "pd2_journal")) else "A VERIFIER")
     a_ex, t_ex = syms["EXTI10_15_IRQHandler"][0], syms["EXTI10_15_IRQHandler"][1]
     ex = run("arm-none-eabi-objdump", "-d", "--no-show-raw-insn", f"--start-address={a_ex:#x}",
              f"--stop-address={a_ex + t_ex:#x}", ELF)
