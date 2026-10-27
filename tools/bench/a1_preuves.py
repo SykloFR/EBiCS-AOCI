@@ -152,6 +152,17 @@ isr_complet = run("arm-none-eabi-objdump", "-d", "--no-show-raw-insn", f"--start
 print("   lit TIMER2_INTF (base TIMER2 0x40000400, decalage #16) :",
       "OK" if re.search(r"\.word\s+0x40000400\b", isr_complet) and re.search(r"#16\]", isr_complet) else "A VERIFIER")
 print("capture avant F4 (27/10) : ADC0_1_IRQHandler ecrit pt_av :", "OK" if lit_adresse(isr_complet, "pt_av") else "A VERIFIER")
+a_t2, t_t2 = syms["TIMER2_IRQHandler"][0], syms["TIMER2_IRQHandler"][1]
+t2_complet = run("arm-none-eabi-objdump", "-d", "--no-show-raw-insn", f"--start-address={a_t2:#x}",
+                 f"--stop-address={a_t2 + t_t2:#x}", ELF)
+print("largeur du secteur (27/10) : TIMER2_IRQHandler ecrit secteur_q16, ADC0_1_IRQHandler le lit :",
+      "OK" if lit_adresse(t2_complet, "secteur_q16") and lit_adresse(isr_complet, "secteur_q16") else "A VERIFIER")
+h = open("inc/bench_hall_angles.h", encoding="utf-8").read()
+hv = {k: int(x) & 0xFFFFFFFF for k, x in re.findall(r"BENCH_HALL_(\d\d) \((-?\d+)\)", h)}
+larg = {e: ((hv[a] - hv[b]) & 0xFFFFFFFF) >> 16 for e, (a, b) in
+        {4: ("45", "64"), 5: ("51", "45"), 1: ("13", "51"), 3: ("32", "13"), 2: ("26", "32"), 6: ("64", "26")}.items()}
+print("   largeurs attendues (etat : q16 / deg) :", {e: (q, round(q * 360 / 65536, 1)) for e, q in larg.items()},
+      "somme", sum(larg.values()), "(65536 = 360 deg)")
 rpi = func("runPIcontrol", 0)
 print("runPIcontrol ecrit pt_cercle (limitation en cercle) :", "OK" if lit_adresse(rpi, "pt_cercle") else "A VERIFIER")
 for s in ("pt_ph", "pt_st", "pt_ang", "pt_ud", "pt_uq", "pt_x", "pt_av"):

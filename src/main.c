@@ -337,6 +337,10 @@ static uint8_t pt_k = 0xFF;                       /* rang ecrit par le trip dans
    par le materiel, CH0IF leve) mais pas encore traite par TIMER2_IRQHandler (meme priorite, IRQ 29 apres l'IRQ 18) :
    l'angle est tenu une periode au lieu d'etre recalcule depuis l'ancienne frontiere (60 deg de retard). */
 volatile uint16_t pepins_tenus = 0;               /* nombre de periodes tenues (lecture SWD) */
+/* Largeur reelle du secteur (27/10/2026, correctif-largeur-secteur-attendu-20261027.md) : l'interpolation supposait 60 deg
+   par secteur (10923 = 60 deg en q31 >> 16) alors que les secteurs releves en A5 font 54,5 a 64 deg. TIMER2_IRQHandler
+   pose a chaque front la largeur du secteur de l'etat atteint (frontiere haute - frontiere basse, q31 >> 16). */
+volatile uint16_t secteur_q16 = 10923u;
 /* Capture avant F4 (27/10/2026, capture-avant-f4-attendu-20261027.md) : pour la meme periode que pt_ph, les trois courants
    apres offset et AVANT f4_mode_commun (i8, satures) ; leur somme separe un decalage de mesure d'un vrai courant
    continu (somme nulle). Relue par CAN (E20D). */
@@ -1552,6 +1556,15 @@ void TIMER2_IRQHandler(void)
 
             		} // end case
 #ifdef BENCH_BUILD
+            		switch (ui8_hall_state) {           /* largeur du secteur atteint (meme valeur dans les deux sens) */
+            		case 4: secteur_q16 = (uint16_t)(((uint32_t)Hall_45 - (uint32_t)Hall_64) >> 16); break;
+            		case 5: secteur_q16 = (uint16_t)(((uint32_t)Hall_51 - (uint32_t)Hall_45) >> 16); break;
+            		case 1: secteur_q16 = (uint16_t)(((uint32_t)Hall_13 - (uint32_t)Hall_51) >> 16); break;
+            		case 3: secteur_q16 = (uint16_t)(((uint32_t)Hall_32 - (uint32_t)Hall_13) >> 16); break;
+            		case 2: secteur_q16 = (uint16_t)(((uint32_t)Hall_26 - (uint32_t)Hall_32) >> 16); break;
+            		case 6: secteur_q16 = (uint16_t)(((uint32_t)Hall_64 - (uint32_t)Hall_26) >> 16); break;
+            		default: break;                    /* etat 0 / 7 : largeur precedente */
+            		}
             		/* journal des fronts Hall (diagnostic du demarrage) : fige des qu'un defaut est verrouille */
             		if(safety_is_latched()) hj_gel = 1;
             		if(!hj_gel){
@@ -2053,7 +2066,11 @@ void ADC0_1_IRQHandler(void)
     	if(!ui8_6step_flag){
     	q31_rotorposition_absolute = q31_rotorposition_hall + MP.angle_correction +
     									+ (q31_t) (i8_recent_rotor_direction
+#ifdef BENCH_BUILD
+    											* (((int32_t)secteur_q16 * ui16_tim2_recent)   /* largeur reelle du secteur */
+#else
     											* ((10923 * ui16_tim2_recent)
+#endif
     													/ (uint32_tics_filtered>>3)) << 16);//interpolate angle between two hallevents by scaling timer2 tics, 10923<<16 is 715827883 = 60deg
     	}
     	else q31_rotorposition_absolute = q31_rotorposition_hall - MP.reverse * deg_30; //offset of 30 degree to get the middle of the sector
