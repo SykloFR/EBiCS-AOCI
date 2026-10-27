@@ -68,6 +68,7 @@ with Banc() as b:
     seq = b.dernier.get(0xE20A, {}).get("hj_seq")
     pt_seq = b.dernier.get(0xE20B, {}).get("pt_seq")
     avant_trip = sorted((v for (s, r), v in b.avant_trip.items() if s == pt_seq), key=lambda v: v["rang"])
+    enrichie = {r: v for (s, r), v in b.avant_trip_u.items() if s == pt_seq}   # E20C, absente avant la capture enrichie
     fronts = sorted((v for (s, r), v in b.fronts.items() if s == seq), key=lambda v: v["rang"])
     defaut = b.defaut_apres(t_stop)                       # E200 recue apres WALK_STOP ; None : indetermine
     defaut = "indetermine (aucune E200 apres WALK_STOP)" if defaut is None else defaut
@@ -102,9 +103,11 @@ F4 = {0: "appliquee", 1: "refus masque", 2: "refus saturation", 3: "refus mode c
 if avant_trip:
     with open(PREFIXE + "_avant_trip.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        w.writerow(["rang", "ph1", "ph2", "ph3", "f4", "six_step"])
+        w.writerow(["rang", "ph1", "ph2", "ph3", "f4", "six_step", "ud", "uq", "angle_deg", "hall", "cercle", "foc"])
         for v in avant_trip:
-            w.writerow([v["rang"], *v["ph"], "non evaluee" if v["f4_non_evaluee"] else F4[v["f4"]], v["six_step"]])
+            u = enrichie.get(v["rang"], {})
+            w.writerow([v["rang"], *v["ph"], "non evaluee" if v["f4_non_evaluee"] else F4[v["f4"]], v["six_step"]]
+                       + [u.get(k, "") for k in ("ud", "uq", "angle_deg", "hall", "cercle", "foc")])
     n = len(avant_trip)
     crete = max(max(abs(x) for x in v["ph"]) for v in avant_trip)
     refus = {F4[k]: sum(1 for v in avant_trip if not v["f4_non_evaluee"] and v["f4"] == k) for k in (1, 2, 3)}
@@ -140,3 +143,29 @@ if e1 and e0 and u_max:
         "tension sous le plafond mais i_q non suivi : ni H1 ni H2 nettement, voir la serie"))
 else:
     print(f"serie temporelle : {len(flux)} trames, fenetre avant l'arret incomplete (E204 {u_max}) : pas de bilan")
+
+# capture enrichie (capture-enrichie-attendu-20261027.md) : sauts d'angle aux fronts Hall, oscillation de u_d / u_q
+if avant_trip and enrichie:
+    import math
+    lig = [(v, enrichie.get(v["rang"])) for v in avant_trip]
+    lig = [(v, u) for v, u in lig if u and u["foc"]]
+    pas = [((u2["angle_deg"] - u1["angle_deg"] + 180) % 360 - 180, u1["hall"], u2["hall"]) for (_, u1), (_, u2) in zip(lig, lig[1:])]
+    courant = sorted(p for p, h1, h2 in pas if h1 == h2)
+    med = courant[len(courant) // 2] if courant else 0.0
+    sauts = [(h1, h2, round(p - med, 1)) for p, h1, h2 in pas if h1 != h2]
+    u_abs = [math.hypot(u["ud"], u["uq"]) for _, u in lig]
+    ref = max(1.0, sum(u_abs) / len(u_abs)) if u_abs else 1.0
+    cc = lambda k: (max(u[k] for _, u in lig) - min(u[k] for _, u in lig)) / ref if lig else 0.0
+    cercle = sum(u["cercle"] for _, u in lig) / len(lig) if lig else 0.0
+    print(f"capture enrichie : {len(lig)} periodes FOC, pas d'angle median {med:+.1f} deg/periode, "
+          f"cercle {cercle:.0%}, u_d crete a crete {cc('ud'):.0%} de u_abs, u_q {cc('uq'):.0%}")
+    print("sauts d'angle aux fronts Hall (front : saut - pas median, deg) :", sauts)
+    grands = [s for s in sauts if abs(s[2]) >= 8]
+    meme_signe = grands and (all(s[2] > 0 for s in grands) or all(s[2] < 0 for s in grands))
+    print("lecture (criteres ecrits avant) : " + (
+        "H1 : limitation en cercle sur plus de 50 % des periodes" if cercle > 0.5 else
+        "H3 : sauts d'angle >= 8 deg aux fronts" + (" de meme signe" if meme_signe else " (signes mixtes)")
+        if sauts and len(grands) >= max(1, len(sauts) // 2) else
+        "H4 : u_d / u_q oscillent (>= 20 % de u_abs)" if max(cc("ud"), cc("uq")) >= 0.20 else
+        "H3 refutee (sauts <= 3 deg)" if sauts and all(abs(s[2]) <= 3 for s in sauts) else
+        "aucune hypothese nette : arret et revue"))

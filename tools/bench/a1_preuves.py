@@ -143,7 +143,11 @@ print("ADC0_1_IRQHandler lit pt_gel et ecrit pt_ph / pt_st :",
       "OK" if all(lit_adresse(isr, s) for s in ("pt_gel", "pt_ph", "pt_st")) else "A VERIFIER")
 print("pwm_disable fige la capture (pt_gel) :", "OK" if lit_adresse(pd, "pt_gel") else "A VERIFIER (inline ?)")
 print("pwm_enable_safe relance la capture (pt_seq) :", "OK" if lit_adresse(pes, "pt_seq") else "A VERIFIER (inline ?)")
-for s in ("pt_ph", "pt_st"):
+print("capture enrichie : ADC0_1_IRQHandler ecrit pt_ang / pt_ud / pt_uq / pt_x :",
+      "OK" if all(lit_adresse(isr, s) for s in ("pt_ang", "pt_ud", "pt_uq", "pt_x")) else "A VERIFIER")
+rpi = func("runPIcontrol", 0)
+print("runPIcontrol ecrit pt_cercle (limitation en cercle) :", "OK" if lit_adresse(rpi, "pt_cercle") else "A VERIFIER")
+for s in ("pt_ph", "pt_st", "pt_ang", "pt_ud", "pt_uq", "pt_x"):
     v = syms.get(s)
     print(f"{s:10s} " + (f"{v[0]:#010x} taille {v[1]} octets" if v else "absent"))
 

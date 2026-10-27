@@ -326,6 +326,13 @@ volatile uint8_t hj_idx = 0, hj_n = 0, hj_gel = 1, hj_seq = 0;
 volatile int8_t pt_ph[3][PT_N];
 volatile uint8_t pt_st[PT_N];
 volatile uint8_t pt_idx = 0, pt_n = 0, pt_gel = 1, pt_seq = 0;
+/* Capture enrichie (27/10/2026, H3 erreur d'angle / H4 instabilite, capture-enrichie-attendu-20261027.md) : pour la meme
+   periode que pt_ph, l'angle applique (q31_rotorposition_absolute >> 24), u_d et u_q / 16 (i8) et un octet (b0-2 etat
+   Hall GPIO, b4 limitation en cercle active dans runPIcontrol, b5 FOC calculee dans la periode). Relue par CAN (E20C). */
+volatile int8_t pt_ud[PT_N], pt_uq[PT_N];
+volatile uint8_t pt_ang[PT_N], pt_x[PT_N];
+volatile uint8_t pt_cercle = 0;                   /* runPIcontrol : u_abs > _U_MAX dans le dernier calcul */
+static uint8_t pt_k = 0xFF;                       /* rang ecrit par le trip dans la periode en cours (0xFF : aucun) */
 #endif
 
 static void suivre_hall(void)
@@ -1736,6 +1743,9 @@ void runPIcontrol(void){
 //	  arm_sqrt_q31((q31_u_d_temp*q31_u_d_temp+q31_u_q_temp*q31_u_q_temp)<<1,&MS.u_abs);
 //	  MS.u_abs = (MS.u_abs>>16)+1;
 
+#ifdef BENCH_BUILD
+	  pt_cercle = (MS.u_abs > _U_MAX) ? 1u : 0u;
+#endif
 	  if (MS.u_abs > _U_MAX){
 			MS.u_q = (q31_u_q_temp*_U_MAX)/MS.u_abs; //division!
 			MS.u_d = (q31_u_d_temp*_U_MAX)/MS.u_abs; //division!
@@ -1977,6 +1987,9 @@ void ADC0_1_IRQHandler(void)
     		pt_ph[1][pt_idx] = CAP_SAT(f4_t[1]);
     		pt_ph[2][pt_idx] = CAP_SAT(f4_t[2]);
     		pt_st[pt_idx] = (uint8_t)(f4_st | (ui8_6step_flag ? 8u : 0u));
+    		pt_ang[pt_idx] = 0; pt_ud[pt_idx] = 0; pt_uq[pt_idx] = 0;
+    		pt_x[pt_idx] = (uint8_t)((GPIO_ISTAT(GPIOC) >> 6) & 0x07u);   /* b5 pose plus bas si la FOC tourne */
+    		pt_k = pt_idx;
     		pt_idx = (uint8_t)((pt_idx + 1u) % PT_N);
     		if(pt_n < PT_N) pt_n++;
     	}
@@ -2032,8 +2045,19 @@ void ADC0_1_IRQHandler(void)
 		timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_0,switchtime[0]);
 		timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_1,switchtime[1]);
 		timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_2,switchtime[2]);
+#ifdef BENCH_BUILD
+		if(pt_k < PT_N){                          /* capture enrichie : meme periode que les entrees du trip */
+			pt_ang[pt_k] = (uint8_t)((uint32_t)q31_rotorposition_absolute >> 24);
+			pt_ud[pt_k] = CAP_SAT(MS.u_d / 16);
+			pt_uq[pt_k] = CAP_SAT(MS.u_q / 16);
+			pt_x[pt_k] |= (uint8_t)(0x20u | (pt_cercle ? 0x10u : 0u));
+		}
+#endif
 
     }
+#ifdef BENCH_BUILD
+    pt_k = 0xFF;
+#endif
     __enable_irq();
 
 }
