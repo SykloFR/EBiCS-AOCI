@@ -78,7 +78,7 @@ def decode(cle, d):
     if cle == 0xE212:
         return dict(timer1_hz=u16(1), regadc_hz=u16(3), boucle_hz=u16(5), pwm_pct=round(u8(7) * 0.4, 1))
     if cle == 0xE211:
-        return dict(zero_mV=u16(1), dernier_mV=u16(3), n=u8(5))
+        return dict(zero_mV=u16(1), dernier_mV=u16(3), n=u8(5), ticks_sans_hall=u16(6))
     if cle == 0xE209:
         return dict(cap_n=u8(1), cap_trip=u8(2), precharge_ms=u8(3), cap_seq=u8(4), chctl2=hex(u16(5)), cap_N=u8(7))
     if cle == 0xE207:

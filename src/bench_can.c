@@ -46,7 +46,7 @@
  *               periode depuis le front descendant valide precedent (u16, ticks de 4 kHz), duree haute qui precede
  *               (u16, ticks), nombre d'entrees (u8, <= 64), numero d'impulsion (u8)
  *   E211 10 Hz  zero de couple adaptatif (build route seulement, 27/10) : zero (u16, mV), derniere valeur entree (u16, mV),
- *               nombre de valeurs reunies (u8, <= 20)
+ *               nombre de valeurs reunies (u8, <= 20), ticks de TIMER1 depuis le dernier front Hall (u16, 4 kHz, sature 64000)
  *   E212  1 Hz  frequence reelle de reg_ADC_processing (build route seulement, 27/10) : debordements de TIMER1 par seconde
  *               (u16), appels de reg_ADC_processing par seconde (u16), tours de boucle par seconde (u16, sature), part
  *               PWM actif (u8, ms / 4)
@@ -118,6 +118,7 @@ extern pedalier_diag_t pedalier_diag;
 extern pd2_journal_t pd2_journal;
 extern couple_zero_t couple_zero;
 extern freq_diag_t freq_diag;
+extern volatile uint16_t route_ticks_sans_hall;
 extern volatile uint16_t pedalier_exti12;
 #endif
 extern uint8_t bench_ph_max, bench_walk_max;
@@ -505,7 +506,8 @@ static uint8_t remplir(const bench_trame_t* t, uint8_t* d)
         d[7] = freq_diag.pwm_q4;
         return 8;
     case 0xE211:
-        put16(d + 1, couple_zero.zero); put16(d + 3, couple_zero.dernier); d[5] = couple_zero.n; d[6] = 0; d[7] = 0;
+        put16(d + 1, couple_zero.zero); put16(d + 3, couple_zero.dernier); d[5] = couple_zero.n;
+        put16(d + 6, route_ticks_sans_hall);           /* ticks de TIMER1 depuis le dernier front Hall (moe_rotation.h) */
         return 8;
 #endif
     case 0xE207:

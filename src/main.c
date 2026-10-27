@@ -50,6 +50,7 @@ OF SUCH DAMAGE.
 #include "pedalier_pd2.h"
 #include "couple_zero.h"
 #include "freq_diag.h"
+#include "moe_rotation.h"
 #endif
 #endif
 /* variables partagees avec les interruptions / le DMA : volatile obligatoire en -Os (EBiCS est compile en -O0,
@@ -328,6 +329,9 @@ couple_zero_t couple_zero = COUPLE_ZERO_INIT;     /* zero de couple adaptatif (2
 /* frequence reelle de reg_ADC_processing (diagnostic du 27/10, inc/freq_diag.h, E212) : compteurs libres */
 volatile uint32_t freq_n_isr = 0, freq_n_trait = 0, freq_n_boucle = 0;
 freq_diag_t freq_diag;
+/* maintien de MOE en rotation (27/10, inc/moe_rotation.h) : ticks de TIMER1 (4 kHz reels) depuis le dernier front Hall,
+   incrementes dans TIMER1_IRQHandler, remis a 0 dans TIMER2_IRQHandler (meme priorite preemptive : pas de course) */
+volatile uint16_t route_ticks_sans_hall = ROUTE_TICKS_SAT;
 void route_freq_ms(void)                          /* SysTick, 1 kHz */
 {
 	freq_diag_ms(&freq_diag, freq_n_isr, freq_n_trait, freq_n_boucle, ui_8_PWM_ON_Flag);
@@ -1497,6 +1501,7 @@ void TIMER1_IRQHandler(void) // regular ADC processing and common slow timing ta
         reg_ADC_flag=1;
 #ifdef ROUTE_BUILD
         freq_n_isr++;                            /* debordements de TIMER1 (E212) */
+        if(route_ticks_sans_hall < ROUTE_TICKS_SAT) route_ticks_sans_hall++;   /* arret moteur (moe_rotation.h) */
 #endif
 //        pulse_counter++;
 //        if(pulse_counter>1000)gpio_bit_set(GPIOB,GPIO_PIN_8);
@@ -1517,6 +1522,9 @@ void TIMER2_IRQHandler(void)
             /* read channel 0 capture value */
 
         	ui16_timertics=timer_channel_capture_value_register_read(TIMER2,TIMER_CH_0);
+#ifdef ROUTE_BUILD
+        	route_ticks_sans_hall = 0;                 /* front Hall : le moteur tourne (moe_rotation.h) */
+#endif
         	ui32_erps_cumulated-=ui32_erps_cumulated>>5;
         	ui32_erps_cumulated+=500000/(ui16_timertics*6);
         	ui16_erps=ui32_erps_cumulated>>5;
@@ -1801,7 +1809,11 @@ void reg_ADC_processing(void)
 			uint16_cadence_filtered=0;
     	}
 		torque_cumulated=0;
+#ifdef ROUTE_BUILD
+		if (!MS.i_q_setpoint && route_raz_pi_autorisee(ui_8_PWM_ON_Flag)){   /* pas de RAZ du PI pont actif (27/10) */
+#else
 		if (!MS.i_q_setpoint){//reset integral part, if no power from throttle signal is wanted
+#endif
 			PI_iq.integral_part=0;
 			PI_id.integral_part=0;
 		}
@@ -2732,14 +2744,21 @@ uint16_t update_setpoint(void){
 					}
 
 				}
+#ifdef ROUTE_BUILD
+				if(!MS.i_q_setpoint_temp&&PI_iq.integral_part&&route_raz_pi_autorisee(ui_8_PWM_ON_Flag)){   /* 27/10 */
+#else
 				if(!MS.i_q_setpoint_temp&&PI_iq.integral_part){
+#endif
 					PI_iq.integral_part=0;
 					PI_id.integral_part=0;
 				}
 
 
 	/* coupe aussi MOE = 0 dans la boucle lente des que la consigne retombe a zero */
-#ifdef BENCH_BUILD
+#if defined(ROUTE_BUILD)
+	/* route (27/10) : coupure seulement moteur arrete, comme EBiCS d'origine (relance moteur lance = courant de freinage) */
+	if(route_coupe_moe(MS.i_q_setpoint_temp, ui_8_PWM_ON_Flag, route_ticks_sans_hall)){
+#elif defined(BENCH_BUILD)
 	if(!MS.i_q_setpoint_temp && ui_8_PWM_ON_Flag && !bench_ol_active){   /* l'outil vecteur fixe gere sa propre coupure */
 #else
 	if(!MS.i_q_setpoint_temp && ui_8_PWM_ON_Flag){

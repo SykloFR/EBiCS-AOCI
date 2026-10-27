@@ -285,10 +285,17 @@ if ROUTE:
     print(f"frequence reg_ADC : SysTick_Handler fige les fenetres (route_freq_ms ou freq_diag) ; E212 lue par {fonctions_lisant('freq_diag')} :",
           "OK" if ("route_freq_ms" in st or lit_adresse(st, "freq_diag")) and "bench_can_poll" in fonctions_lisant("freq_diag")
           else "A VERIFIER")
+    lec_t = fonctions_lisant("route_ticks_sans_hall")
+    print(f"MOE en rotation (27/10) : route_ticks_sans_hall ecrit par TIMER1/TIMER2, lu par {nom_us} ({lec_t}) :",
+          "OK" if {"TIMER1_IRQHandler", "TIMER2_IRQHandler", nom_us} <= set(lec_t) else "A VERIFIER")
+    print(f"MOE en rotation : {nom_ra} lit ui_8_PWM_ON_Flag (RAZ du PI pont coupe seulement) :",
+          "OK" if lit_adresse(ra, "ui_8_PWM_ON_Flag") else "A VERIFIER")
     lecteurs = fonctions_lisant("pedalier_exti12")
     print(f"pedalier : trame E20F, compteurs lus hors interruption par {lecteurs} :",
           "OK" if any(f != "EXTI10_15_IRQHandler" for f in lecteurs) and fonctions_lisant("pedalier_diag") else "A VERIFIER")
 else:
+    print("banc : regle de la porte 3 conservee (route_ticks_sans_hall absent) :",
+          "OK" if "route_ticks_sans_hall" not in syms else "A VERIFIER")
     print("banc : pas de mesure de frequence (freq_diag, freq_n_isr, route_freq_ms absents) :",
           "OK" if not any(x in syms for x in ("freq_diag", "freq_n_isr", "route_freq_ms")) else "A VERIFIER")
     print("banc : pas de diagnostic du pedalier (pedalier_diag, pedalier_exti12, pd2_journal absents) :",
