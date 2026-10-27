@@ -40,6 +40,7 @@ OF SUCH DAMAGE.
 #include "safety.h"
 #include "bench_can.h"
 #include "foc_int.h"
+#include "pi_control.h"      /* anti-windup du PI (27/10), banc et production */
 #ifdef BENCH_BUILD
 #include "f4_mode_commun.h"
 #include "bench_walk_bride.h"
@@ -674,7 +675,7 @@ int main(void)
 	PI_id.limit_output = _U_MAX;
 	PI_id.max_step=15;
 	PI_id.shift=11;
-	PI_id.limit_i=1800;
+	PI_id.limit_i=(int16_t)((_U_MAX * PI_LIMITE_I_NUM) / PI_LIMITE_I_DEN);   /* anti-windup 27/10 (pi_control.h) ; avant : 1800 */
 
 	PI_iq.gain_i=Q16(I_FACTOR_I_Q);
 	PI_iq.gain_p=Q16(P_FACTOR_I_Q);
@@ -682,7 +683,7 @@ int main(void)
 	PI_iq.limit_output = _U_MAX;
 	PI_iq.max_step=15;
 	PI_iq.shift=11;
-	PI_iq.limit_i=_U_MAX;
+	PI_iq.limit_i=(int16_t)((_U_MAX * PI_LIMITE_I_NUM) / PI_LIMITE_I_DEN);   /* anti-windup 27/10 (pi_control.h) ; avant : _U_MAX */
 
     //Check, if virtual EEPROM was ever written (or interrupted mid-program). If not, fill it with default values
 #ifdef BENCH_NO_EEPROM

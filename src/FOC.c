@@ -7,6 +7,7 @@
 #include "main.h"
 #include "config.h"
 #include "FOC.h"
+#include "pi_control.h"
 #include <arm_math.h>
 
 //q31_t	T_halfsample = 0.00003125;
@@ -156,34 +157,12 @@ void FOC_calculation(int16_t int16_i_as, int16_t int16_i_bs, q31_t q31_teta, int
 //PI Control for quadrature current iq (torque)
 //REVUE-PUISSANCE P4 : version entiere (Q16) du PI d'EBiCS, meme comportement a +-2 points pres (tools/bench/host_test_foc_int.c),
 //cout mesure sur la carte : 479 cycles au pire contre 2901 en flottant emule (tools/bench/t5_ram_cost.py).
+//PORTE 4, 27/10/2026 : coeur dans inc/pi_control.h (fonction pure testee sur hote), avec anti-windup (integration
+//conditionnelle, integrale plafonnee a 3/4 de la limite de sortie, voir main.c).
 q31_t PI_control (PI_control_t* PI_c)
 {
-	/* delta sature pour qu'aucun produit ne depasse 2^30 */
-	int32_t gmax = (PI_c->gain_p > PI_c->gain_i) ? PI_c->gain_p : PI_c->gain_i;
-	int32_t dmax = (gmax > 0) ? (0x3FFFFFFF / gmax) : 0x3FFFFFFF;
-	int32_t delta = PI_c->setpoint - PI_c->recent_value;
-	if (delta > dmax) delta = dmax;
-	if (delta < -dmax) delta = -dmax;
-
-	int32_t p_q16 = delta * PI_c->gain_p;
-	int32_t lim_q16 = ((int32_t)PI_c->limit_i) << 16;
-	PI_c->integral_part += delta * PI_c->gain_i;
-
-	if (PI_c->integral_part > lim_q16) PI_c->integral_part = lim_q16;
-	if (PI_c->integral_part < -lim_q16) PI_c->integral_part = -lim_q16;
-
-	int32_t sum = p_q16 + PI_c->integral_part;
-	int32_t target = (sum >= 0) ? (sum >> 16) : -((-sum) >> 16);   //troncature vers zero, comme la conversion flottant -> entier
-
-	//avoid too big steps in one loop run
-	if (target > PI_c->out + PI_c->max_step) PI_c->out += PI_c->max_step;
-	else if (target < PI_c->out - PI_c->max_step) PI_c->out -= PI_c->max_step;
-	else PI_c->out = target;
-
-	if (PI_c->out > PI_c->limit_output) PI_c->out = PI_c->limit_output;
-	if (PI_c->out < -(PI_c->limit_output)) PI_c->out = -(PI_c->limit_output); // allow no negative voltage.
-
-	return (PI_c->out);
+	return pi_pas(PI_c->setpoint, PI_c->recent_value, PI_c->gain_p, PI_c->gain_i, PI_c->limit_i, PI_c->limit_output,
+	              PI_c->max_step, &PI_c->integral_part, &PI_c->out);
 }
 
 
