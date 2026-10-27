@@ -3,6 +3,9 @@ Lance WALK_START(ILIM) jusqu'au defaut, a l'arret du pont par EBiCS ou a DUREE s
 HJ_N derniers fronts Hall du passage : cas EBiCS xy, duree depuis le front precedent, 6-step, sens detecte, angle de
 secteur retenu. Bilan : fronts avant / arriere (sequence avant EBiCS 6-4-5-1-3-2 = theta croissant au releve A5),
 avance nette en secteurs, allers-retours sur une meme frontiere (rotor qui oscille), fronts hors sequence.
+Si MOE retombe, le verdict attend une E200 recue APRES le front MOE (0,5 s au plus) : defaut si elle en porte un, arret
+EBiCS sans defaut seulement si elle dit 0, indetermine sinon. Le CSV porte l'heure de reception de chaque front (t_rx_s,
+depuis WALK_START).
 Conditions : moteur monte, chaine retiree, personne sur le velo, alim limitee, arret physique a portee.
 Usage : python tools/bench/t22_journal_fronts_hall.py PREFIXE [ilim_pts=5] [duree_s=3]"""
 import csv, os, sys, time
@@ -19,14 +22,14 @@ ARRIERE = {46, 62, 23, 31, 15, 54}
 
 with Banc() as b:
     time.sleep(1.5)
-    e200, e205 = b.dernier.get(0xE200, {}), b.dernier.get(0xE205, {})
+    e200, e205 = b.frais(0xE200) or {}, b.frais(0xE205) or {}
     print(f"depart : defaut {e200.get('defaut')}, calibration {e205.get('calibration_faite')}, "
           f"journal {b.dernier.get(0xE20A)}", flush=True)
-    if e200.get("defaut") or not e205.get("calibration_faite") or 0xE20A not in b.dernier:
-        sys.exit("ARRET : defaut, calibration non faite ou build sans journal (remise sous tension / bon build ?)")
+    if e200.get("defaut") is None or e200.get("defaut") or not e205.get("calibration_faite") or 0xE20A not in b.dernier:
+        sys.exit("ARRET : defaut, calibration non faite, E200 / E205 pas fraiches ou build sans journal (remise sous tension / bon build ?)")
     seq0 = b.dernier[0xE20A].get("hj_seq")
     b.demarrer_heartbeat(); time.sleep(0.8)
-    arret, t0 = None, time.time()
+    arret, t0, t0_mono = None, time.time(), time.monotonic()
     try:
         st = b.walk_start(ILIM)
         print(f"WALK_START {ILIM} pts :", STATUTS.get(st, "pas de reponse"), flush=True)
@@ -38,27 +41,35 @@ with Banc() as b:
             e0, e2 = b.dernier.get(0xE000, {}), b.dernier.get(0xE200, {})
             if e2.get("defaut"):
                 arret = f"defaut {e2['defaut']}"
+            elif b.etat(0xE000) in ("fige", "absent"):        # plus de 5 periodes (100 ms) sans E000
+                arret = f"telemetrie E000 figee ({b.etat(0xE000)})"
             elif not e0.get("moe"):
-                arret = "MOE retombe sans defaut (arret EBiCS)"
+                # la E000 (MOE = 0) arrive avant la E200 qui porte le defaut : attendre une E200 recue apres le front
+                d = b.defaut_apres(b.t_moe0 or time.monotonic() - 0.05)
+                arret = (f"defaut {d} (MOE retombe, E200 recue apres)" if d else
+                         "MOE retombe, arret EBiCS sans defaut (E200 recue apres : defaut 0)" if d == 0 else
+                         "MOE retombe, defaut indetermine (aucune E200 recue dans les 0,5 s apres)")
             elif (b.dernier.get(0xE101, {}).get("ibat") or 0) >= 1.5:
                 arret = "Ibat >= 1,5 A"
     finally:
         print("WALK_STOP :", STATUTS.get(b.walk_stop(), "pas de reponse"), flush=True)
+        t_stop = time.monotonic()
     print(f"arret : {arret or f'duree {DUREE} s'} apres {time.time() - t0:.2f} s", flush=True)
     time.sleep(3.0)                                       # plus de deux tours de E20A (64 rangs a 50 Hz)
     seq = b.dernier.get(0xE20A, {}).get("hj_seq")
     fronts = sorted((v for (s, r), v in b.fronts.items() if s == seq), key=lambda v: v["rang"])
-    defaut = b.dernier.get(0xE200, {}).get("defaut")
+    defaut = b.defaut_apres(t_stop)                       # E200 recue apres WALK_STOP ; None : indetermine
+    defaut = "indetermine (aucune E200 apres WALK_STOP)" if defaut is None else defaut
 
 if seq == seq0:
     sys.exit("ARRET : journal non relance (le pont ne s'est pas active ?)")
 with open(PREFIXE + ".csv", "w", newline="", encoding="utf-8") as f:
     w = csv.writer(f)
-    w.writerow(["rang", "cas", "transition", "sens_sequence", "duree_ms", "six_step", "sens_detecte", "angle_deg"])
+    w.writerow(["t_rx_s", "rang", "cas", "transition", "sens_sequence", "duree_ms", "six_step", "sens_detecte", "angle_deg"])
     for v in fronts:
         c = v["cas"]
         sq = "avant" if c in AVANT else ("arriere" if c in ARRIERE else "hors sequence")
-        w.writerow([v["rang"], c, f"{c // 10}->{c % 10}", sq, round(v["tics"] * 0.002, 3), v["six_step"], v["sens"],
+        w.writerow([round(v["t_rx"] - t0_mono, 3), v["rang"], c, f"{c // 10}->{c % 10}", sq, round(v["tics"] * 0.002, 3), v["six_step"], v["sens"],
                     v["angle_deg"]])
 print(f"journal n {seq} : {len(fronts)} fronts, defaut final {defaut}")
 print(" rang  trans  sequence      ms   6step sens angle")

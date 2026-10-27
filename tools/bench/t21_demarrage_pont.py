@@ -40,6 +40,7 @@ with Banc() as b:
                 break
     finally:
         print("OL_STOP :", STATUTS.get(b.ol_stop(), "pas de reponse"), flush=True)
+        t_stop = time.monotonic()
     t0 = time.time()
     while time.time() - t0 < 4:
         e209 = b.dernier.get(0xE209, {})
@@ -52,7 +53,9 @@ with Banc() as b:
     b.capture.clear()
     time.sleep(3.0)                                       # plus de deux tours complets de E208
     cap = {i: v for i, (s, v) in b.capture.items() if s == sq}
-    defaut = b.dernier.get(0xE200, {}).get("defaut", defaut)
+    d = b.defaut_apres(t_stop)                            # E200 recue apres OL_STOP ; None : indetermine
+    if d is not None or not defaut:
+        defaut = "indetermine (aucune E200 apres OL_STOP)" if d is None else d
 
 lignes = [(i,) + cap[i] for i in range(n) if i in cap]
 with open(PREFIXE + ".csv", "w", newline="", encoding="utf-8") as f:

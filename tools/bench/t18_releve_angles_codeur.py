@@ -111,15 +111,19 @@ def mesurer(args):
             sys.exit(f"ARRET : OL_SET refusé : {STATUTS.get(st, st)}")
         time.sleep(1.0)                                   # alignement du rotor sur θ = 0
         n = int(round(360 * args.tours / args.pas))
+        t_dep = time.monotonic()
         plan = [("montee", i * args.pas) for i in range(n + 1)] + [("descente", (n - i) * args.pas) for i in range(n + 1)]
         try:
             for sens, theta in plan:
                 st = b.ol_set(theta, args.ud)
                 time.sleep(args.dt)
                 e0, e1, e101 = b.dernier.get(0xE000, {}), b.dernier.get(0xE001, {}), b.dernier.get(0xE101, {})
-                lignes.append((sens, theta, e1.get("hall_gpio"), e0.get("id"), e0.get("iq"), e101.get("ibat")))
+                lignes.append((sens, theta, e1.get("hall_gpio"), e0.get("id"), e0.get("iq"), e101.get("ibat"),
+                               round(time.monotonic() - t_dep, 3)))
                 if st != 0 or not e0.get("moe") or b.dernier.get(0xE200, {}).get("defaut"):
-                    arret = f"θ {theta}° : statut {st}, MOE {e0.get('moe')}, défaut {b.dernier.get(0xE200, {}).get('defaut')}"
+                    # MOE retombe : la E200 qui porte le defaut arrive apres la E000 ; None = indetermine
+                    d = b.dernier.get(0xE200, {}).get("defaut") or b.defaut_apres(b.t_moe0 or time.monotonic() - 0.05)
+                    arret = f"θ {theta}° : statut {st}, MOE {e0.get('moe')}, défaut {'indéterminé' if d is None else d}"
                     break
                 if (e101.get("ibat") or 0) >= 0.4:
                     arret = f"θ {theta}° : courant batterie {e101.get('ibat')} A"
@@ -148,7 +152,7 @@ def main():
     else:
         brut, arret = mesurer(a)
         with open(a.prefixe + ".csv", "w", newline="", encoding="utf-8") as f:
-            w = csv.writer(f); w.writerow(["sens", "theta", "hall", "id", "iq", "ibat"]); w.writerows(brut)
+            w = csv.writer(f); w.writerow(["sens", "theta", "hall", "id", "iq", "ibat", "t_s"]); w.writerows(brut)
         lignes = [(s, t, h) for s, t, h, *_ in brut if h is not None]
     r = analyser(lignes)
     r["arret_anticipe"] = arret
