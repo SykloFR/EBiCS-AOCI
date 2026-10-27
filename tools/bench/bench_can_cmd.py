@@ -30,6 +30,7 @@ STATUTS = {0: "accepté", 1: "refusé : heartbeat absent ou < 500 ms", 2: "refus
            5: "refusé : offsets non calibrés (roue jamais arrêtée)",
            6: "refusé : angles du codeur non relevés ou état Hall invalide",
            7: "refusé : autre essai en cours (outil vecteur fixe ou walk)"}
+FLUX = (0xE000, 0xE001, 0xE101, 0xE102)   # trames gardees en serie par b.flux (i_q, u_q, u_abs, Ibat, erps)
 FRAIS_N, FIGE_N = 2, 5            # periodes nominales (PERIODE, ms, table trames[] de src/bench_can.c)
 # grandeurs filtrees ou moyennees cote firmware : une valeur fraiche reste en retard sur l'instant (src/main.c, src/FOC.c)
 MOYEN = {(0xE000, "iq"): "IIR 1/8 a la PWM (FOC_calculation ; brut avec l'outil vecteur fixe)",
@@ -58,6 +59,7 @@ class Banc:
         self.capture = {}                 # E208 : rang -> (cap_seq vu en E209 a la reception, (ph1, ph2, ph3))
         self.fronts = {}                  # E20A : (hj_seq, rang) -> trame decodee + t_rx (journal des fronts Hall)
         self.avant_trip = {}              # E20B : (pt_seq, rang) -> trame decodee (capture des periodes avant le trip)
+        self.flux = None                  # liste : (time.monotonic, cle, trame decodee) des trames de FLUX, si active (= [])
         self._verrou = threading.Lock()
         self._hb_actif = threading.Event()
         self._fin = threading.Event()
@@ -95,6 +97,8 @@ class Banc:
                         self.t_moe0 = None
                 self.moe_rx[cle] = self.dernier.get(0xE000, {}).get("moe")
                 self.recu[cle] = t
+                if self.flux is not None and cle in FLUX:
+                    self.flux.append((t, cle, self.dernier[cle]))
                 if cle == 0xE20A and self.dernier[cle]["rang"] != 0xFF:
                     d = self.dernier[cle]
                     self.fronts[(d["hj_seq"], d["rang"])] = dict(d, t_rx=t)   # t_rx : time.monotonic a la reception

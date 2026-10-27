@@ -9,6 +9,9 @@ depuis WALK_START).
 Capture avant trip (E20B, build e7ed5b5 + capture) : les PT_N dernieres periodes PWM vues par le trip, relues apres l'arret
 et ecrites dans PREFIXE_avant_trip.csv (entrees du trip ph1..ph3 en pts, resultat de F4, 6-step) ; absente des builds
 anterieurs (rien n'est ecrit).
+Serie temporelle (27/10/2026) : E000 / E001 / E101 / E102 (i_q, consigne, i_d, u_d, u_q, u_abs, Ibat, erps, 20 a 50 ms)
+gardees du WALK_START a l'arret, ecrites dans PREFIXE_telemetrie.csv ; bilan des 200 ms avant la chute de MOE : u_abs
+contre le plafond _U_MAX (E204), suivi de la consigne i_q.
 Conditions : moteur monte, chaine retiree, personne sur le velo, alim limitee, arret physique a portee.
 Usage : python tools/bench/t22_journal_fronts_hall.py PREFIXE [ilim_pts=5] [duree_s=3]"""
 import csv, os, sys, time
@@ -33,6 +36,8 @@ with Banc() as b:
     seq0 = b.dernier[0xE20A].get("hj_seq")
     b.demarrer_heartbeat(); time.sleep(0.8)
     arret, t0, t0_mono = None, time.time(), time.monotonic()
+    u_max = (b.dernier.get(0xE204) or {}).get("u_max")
+    b.flux = []
     try:
         st = b.walk_start(ILIM)
         print(f"WALK_START {ILIM} pts :", STATUTS.get(st, "pas de reponse"), flush=True)
@@ -58,6 +63,7 @@ with Banc() as b:
         print("WALK_STOP :", STATUTS.get(b.walk_stop(), "pas de reponse"), flush=True)
         t_stop = time.monotonic()
     print(f"arret : {arret or f'duree {DUREE} s'} apres {time.time() - t0:.2f} s", flush=True)
+    flux, b.flux = b.flux, None
     time.sleep(4.0)                       # plus de deux tours de E20A (64 rangs a 50 Hz), un tour et demi de E20B (128 rangs)
     seq = b.dernier.get(0xE20A, {}).get("hj_seq")
     pt_seq = b.dernier.get(0xE20B, {}).get("pt_seq")
@@ -108,3 +114,29 @@ if avant_trip:
     for v in avant_trip[-12:]:
         print(f"{v['rang']:5d} {v['ph'][0]:5d} {v['ph'][1]:4d} {v['ph'][2]:4d}  "
               f"{'non evaluee' if v['f4_non_evaluee'] else F4[v['f4']]}")
+
+# serie temporelle : une ligne par trame, colonnes vides hors de la trame
+COLS = ["iq_cons", "iq", "id", "moe", "ud", "uq", "uabs", "erps", "ibat", "vbat"]
+with open(PREFIXE + "_telemetrie.csv", "w", newline="", encoding="utf-8") as f:
+    w = csv.writer(f)
+    w.writerow(["t_s", "trame"] + COLS)
+    for t, cle, v in flux:
+        w.writerow([round(t - t0_mono, 4), f"E{cle & 0xFFF:03X}"] + [v.get(c, "") for c in COLS])
+t_chute = next((t for t, cle, v in flux if cle == 0xE000 and not v.get("moe") and t - t0_mono > 0.25), None)
+fin = t_chute if t_chute is not None else (flux[-1][0] if flux else t0_mono)
+fen = [(t, cle, v) for t, cle, v in flux if fin - 0.2 <= t < fin]
+e1 = [v for t, cle, v in fen if cle == 0xE001]
+e0 = [v for t, cle, v in fen if cle == 0xE000 and v.get("moe")]
+if e1 and e0 and u_max:
+    sat = sum(1 for v in e1 if v["uabs"] >= 0.97 * u_max) / len(e1)
+    ecart = [abs(v["iq"] - v["iq_cons"]) for v in e0]
+    print(f"200 ms avant {'la chute de MOE' if t_chute else 'la fin'} : u_abs {min(v['uabs'] for v in e1)}..{max(v['uabs'] for v in e1)}"
+          f" (plafond {u_max}, {sat:.0%} des E001 >= 97 %), u_d {[v['ud'] for v in e1[-4:]]}, u_q {[v['uq'] for v in e1[-4:]]}, "
+          f"i_q {[v['iq'] for v in e0[-4:]]} pour {e0[-1]['iq_cons']}, i_d {[v['id'] for v in e0[-4:]]}, "
+          f"ecart i_q max {max(ecart)}")
+    print("lecture (criteres ecrits avant) : " + (
+        "PLAFOND DE TENSION ATTEINT (H1 : regulateur sature avant le trip)" if sat >= 0.5 else
+        "tension sous le plafond et i_q suivi (H2 : evenement brutal, angle ?)" if max(ecart) <= 2 else
+        "tension sous le plafond mais i_q non suivi : ni H1 ni H2 nettement, voir la serie"))
+else:
+    print(f"serie temporelle : {len(flux)} trames, fenetre avant l'arret incomplete (E204 {u_max}) : pas de bilan")
