@@ -48,6 +48,7 @@ OF SUCH DAMAGE.
 #ifdef ROUTE_BUILD
 #include "pedalier_diag.h"
 #include "pedalier_pd2.h"
+#include "couple_zero.h"
 #endif
 #endif
 /* variables partagees avec les interruptions / le DMA : volatile obligatoire en -Os (EBiCS est compile en -O0,
@@ -322,6 +323,7 @@ volatile uint8_t variante_repli = 0;              /* 1 : octet vierge, variante 
 pedalier_diag_t pedalier_diag = {0, 0, 0, 0};
 pd2_antirebond_t pd2_ar = {0, 0, 0};              /* cadence sur PD2 (27/10, inc/pedalier_pd2.h) */
 pd2_journal_t pd2_journal;                        /* journal des 64 dernieres periodes de PD2 (diagnostic, E210) */
+couple_zero_t couple_zero = COUPLE_ZERO_INIT;     /* zero de couple adaptatif (27/10, inc/couple_zero.h, E211) */
 volatile uint16_t pedalier_exti12 = 0;
 #endif
 uint8_t bench_ph_max = PH_CURRENT_MAX, bench_walk_max = BENCH_WALK_ILIM_MAX;
@@ -1700,9 +1702,16 @@ void PAS_processing(void)
 		}
 #endif
 		torque_cumulated-=torque_cumulated>>MS.TQfilter;
+#ifdef ROUTE_BUILD
+		{
+			int32_t zero = couple_zero_ajoute(&couple_zero, MS.torque_on_crank);   /* zero adaptatif de l'origine (27/10) */
+			if(MS.torque_on_crank>zero) torque_cumulated+=(MS.torque_on_crank-zero);
+		}
+#else
 		if(MS.torque_on_crank>750){
 			torque_cumulated+=(MS.torque_on_crank-750);
 		}
+#endif
 		//Power=2*Pi*speed*torque, calibration factors: rpm to 1/s for cadence: /60, mV to Nm: 750 to 3200 --> 0 to 80 Nm. (from Bafang data sheet)
 		MS.torque_filtered=(torque_cumulated>>MS.TQfilter);
 		MS.p_human=(uint16_t)((float)(MS.cadence*MS.torque_filtered)*0.00342); //in Watt
@@ -1752,7 +1761,11 @@ void reg_ADC_processing(void)
 	MS.Voltage=voltage_raw_filtered*CAL_BAT_V;//Battery voltage in mV
 	MS.calories=MP.angle_correction/one_deg;
 	MS.torque_on_crank=(((adc_value[2])*3300)>>12)+torque_offset_correction; //map ADC value to mV
+#ifdef ROUTE_BUILD
+	if(MS.torque_on_crank>(int32_t)couple_zero.zero+10&&PAS_counter<MP.PAS_timeout)torque_counter=0;   /* zero adaptatif + 10 mV (27/10) */
+#else
 	if(MS.torque_on_crank>760&&PAS_counter<MP.PAS_timeout)torque_counter=0;//reset counter, if pressure on pedal and pedals rotating
+#endif
 	MS.range=Overrun_flag*100;//on/off button line
     slow_loop_counter ++;
     if(torque_counter<64000)torque_counter++;

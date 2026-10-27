@@ -45,6 +45,8 @@
  *   E210 50 Hz  journal des periodes de PD2 (build route seulement, 27/10) : rang r (u8, 0 = la plus ancienne, 0xFF = vide),
  *               periode depuis le front descendant valide precedent (u16, ticks de 4 kHz), duree haute qui precede
  *               (u16, ticks), nombre d'entrees (u8, <= 64), numero d'impulsion (u8)
+ *   E211 10 Hz  zero de couple adaptatif (build route seulement, 27/10) : zero (u16, mV), derniere valeur entree (u16, mV),
+ *               nombre de valeurs reunies (u8, <= 20)
  *   E20D 50 Hz  capture avant F4, meme rang que E20B : rang r (u8, 0xFF = vide), ph1, ph2, ph3 apres offset et avant F4
  *               (i8, pts, satures a +-127), numero de capture (u8), drapeaux (u8 : b0 figee, b1 pleine)
  *   E206  sur commande : opcode (u8), cmd_seq (u8), statut (u8 : 0 accepté, 1 refusé sans heartbeat depuis 500 ms,
@@ -75,6 +77,7 @@
 #ifdef ROUTE_BUILD
 #include "pedalier_diag.h"
 #include "pedalier_pd2.h"
+#include "couple_zero.h"
 #endif
 #if __has_include("bench_hall_angles.h")
 #include "bench_hall_angles.h"          /* angles du codeur relevés (A5) : définit BENCH_HALL_MESURE */
@@ -109,6 +112,7 @@ extern volatile uint8_t bench_variante, variante_repli;
 #ifdef ROUTE_BUILD
 extern pedalier_diag_t pedalier_diag;
 extern pd2_journal_t pd2_journal;
+extern couple_zero_t couple_zero;
 extern volatile uint16_t pedalier_exti12;
 #endif
 extern uint8_t bench_ph_max, bench_walk_max;
@@ -159,7 +163,7 @@ static bench_trame_t trames[] = {
     {0xE2, 0x0B,   20, 0, 0}, {0xE2, 0x0C,   20, 0, 0},
     {0xE2, 0x0D,   20, 0, 0}, {0xE2, 0x0E, 1000, 0, 0},
 #ifdef ROUTE_BUILD
-    {0xE2, 0x0F,  100, 0, 0}, {0xE2, 0x10,   20, 0, 0},
+    {0xE2, 0x0F,  100, 0, 0}, {0xE2, 0x10,   20, 0, 0}, {0xE2, 0x11,  100, 0, 0},
 #endif
 };
 #define NB_TRAMES (sizeof(trames) / sizeof(trames[0]))
@@ -491,6 +495,9 @@ static uint8_t remplir(const bench_trame_t* t, uint8_t* d)
         pj_tx++;
         return 8;
     }
+    case 0xE211:
+        put16(d + 1, couple_zero.zero); put16(d + 3, couple_zero.dernier); d[5] = couple_zero.n; d[6] = 0; d[7] = 0;
+        return 8;
 #endif
     case 0xE207:
         d[1] = bench_variante;

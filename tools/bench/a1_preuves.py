@@ -294,10 +294,14 @@ if "PAS_processing" in syms:
         print("cadence PD2 : PAS_processing seuil 20 ticks, 5000 / periode, sans lecture de sens (gpio_input_bit_get) :",
               "OK" if re.search(r"cmp\s+r\d+, #20\b", pp) and "#5000" in pp and "gpio_input_bit_get" not in pp
               else "A VERIFIER")
+        print("zero de couple adaptatif (27/10) : PAS_processing ecrit couple_zero, plus de seuil fixe 750 :",
+              "OK" if lit_adresse(pp, "couple_zero") and not re.search(r"#750\b", pp) else "A VERIFIER")
+        print(f"zero de couple : {nom_ra} lit couple_zero (relance du delai d'arret) ; E211 lue par {fonctions_lisant('couple_zero')} :",
+              "OK" if lit_adresse(ra, "couple_zero") and "bench_can_poll" in fonctions_lisant("couple_zero") else "A VERIFIER")
     else:
-        print("banc : PAS_processing d'origine (seuil 70, 10000 / periode, sens lu sur PD2) :",
+        print("banc : PAS_processing d'origine (seuil 70, 10000 / periode, sens lu sur PD2, zero fixe 750) :",
               "OK" if re.search(r"cmp\s+r\d+, #70\b", pp) and "#10000" in pp and "gpio_input_bit_get" in pp
-              else "A VERIFIER")
+              and re.search(r"#750\b", pp) and "couple_zero" not in syms else "A VERIFIER")
 else:
     print("PAS_processing absent (inline) : A VERIFIER")
 print("regle F4 des entrees du trip : prouvee par le test hote tools/test_f4_mode_commun.c (en-tete reel)")
