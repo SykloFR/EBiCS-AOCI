@@ -42,6 +42,7 @@ OF SUCH DAMAGE.
 #include "foc_int.h"
 #ifdef BENCH_BUILD
 #include "f4_mode_commun.h"
+#include "bench_walk_bride.h"
 #endif
 /* variables partagees avec les interruptions / le DMA : volatile obligatoire en -Os (EBiCS est compile en -O0,
    sans quoi while(!reg_ADC_flag); devient une boucle infinie et tout le code apres est supprime) */
@@ -2552,7 +2553,9 @@ uint16_t update_setpoint(void){
 	               bouton walk de l'afficheur sont ignores. Les reductions (batterie, temperature, sonde) s'appliquent ensuite. */
 	            if(1){                       /* les branches d'origine (else if ...) ne s'executent jamais en build de banc */
 	            	if(MS.brake_active_flag || !bench_walk) MS.i_q_setpoint_temp=0;
-	            	else MS.i_q_setpoint_temp=map(MS.Speedx100, (int32_t)MP.walk_assist_speed-200, MP.walk_assist_speed, bench_walk_ilim, 0);
+	            	else MS.i_q_setpoint_temp=bench_walk_bride(   /* bride en erps (decision du 27/10), MS.Speedx100 intact */
+	            		map(MS.Speedx100, (int32_t)MP.walk_assist_speed-200, MP.walk_assist_speed, bench_walk_ilim, 0),
+	            		bench_erps_bride(ui16_erps, ui16_timertics, SIXSTEPTHRESHOLD));
 	            }
 #else
 	            //check brake with first priority

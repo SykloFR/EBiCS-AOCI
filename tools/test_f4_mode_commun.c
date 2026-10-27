@@ -14,7 +14,7 @@
 #include "f4_mode_commun.h"
 
 #define PH_SATURATION_COUNTS 2000
-#define TRIP_BANC 16
+#define TRIP_BANC 45   /* seuil de banc depuis la decision du 27/10 (PH_CURRENT_TRIP, variante 2) */
 
 static int n_ok = 0, n_ko = 0;
 #define CHECK(cond, ...) do { if (cond) { n_ok++; } else { n_ko++; printf("  ECHEC : "); printf(__VA_ARGS__); printf("\n"); } } while (0)
@@ -32,7 +32,7 @@ static const char *nom(f4_resultat_t r)
 
 static int a16(int v) { return v < 0 ? -v : v; }
 
-typedef struct { int16_t i[3]; f4_resultat_t r; int crit; } sortie_t;
+typedef struct { int16_t i[3]; f4_resultat_t r; int crit; int16_t t[3]; } sortie_t;
 
 /* une periode de l'ISR : courants corriges d'offset, offsets injectes, masque -> F4 -> reconstruction d'EBiCS selon l'etat
    dyn ADC (0/1 : rien ; 2 : ph1 = -ph2-ph3 ; 3 : ph2 = -ph1-ph3) -> entrees du trip -> critere max |.| */
@@ -49,7 +49,7 @@ static sortie_t isr_etat(int i1, int i2, int i3, const int off[3], uint8_t masqu
     int16_t t[3];
     f4_entrees_trip(t, p1, p2, mes, masque);
     int c = 0;
-    for (int k = 0; k < 3; k++) if (a16(t[k]) > c) c = a16(t[k]);
+    for (int k = 0; k < 3; k++) { if (a16(t[k]) > c) c = a16(t[k]); s.t[k] = t[k]; }
     s.crit = c;
     return s;
 }
@@ -157,6 +157,28 @@ int main(int argc, char **argv)
         printf("    [300,-100,-200] : critere trip min %d\n", c);
         CHECK(c == 300, "courant reel : critere %d au lieu de 300", c);
     }
+
+#if !defined(F4_LOGIQUE_ACTUELLE)
+    printf("[9] decision du 27/10 : masque 0b111 -> le trip prend les trois mesures directes ; sinon reconstruction\n");
+    s = isr(10 + 19, -5 + 19, -5 + 19, OFF_2048, F4_MASQUE_TOUTES);           /* (a) F4 appliquee */
+    printf("    (a) F4 appliquee [29,14,14] : %s -> entrees trip [%d,%d,%d]\n", nom(s.r), s.t[0], s.t[1], s.t[2]);
+    CHECK(s.r == F4_APPLIQUEE && s.t[0] == 10 && s.t[1] == -5 && s.t[2] == -5, "(a) entrees trip != mesures apres F4");
+    s = isr(26, 26, 24, OFF_2048, F4_MASQUE_TOUTES);                         /* (b) pic de mode commun du 27/10 */
+    printf("    (b) pic de mode commun [26,26,24] : %s -> entrees trip [%d,%d,%d], critere %d (attendu 26)\n",
+           nom(s.r), s.t[0], s.t[1], s.t[2], s.crit);
+    CHECK(s.r == F4_REFUS_MODE_COMMUN && s.crit == 26, "(b) [26,26,24] : critere %d au lieu de 26", s.crit);
+    for (int e = 0; e < 4; e++) {                                            /* quel que soit l'etat dyn ADC */
+        sortie_t se = isr_etat(26, 26, 24, OFF_2048, F4_MASQUE_TOUTES, e);
+        CHECK(se.crit == 26, "(b) etat %d : critere %d au lieu de 26", e, se.crit);
+    }
+    s = isr(-2000, 900, 900, OFF_2048, F4_MASQUE_TOUTES);                    /* (c) brut sature */
+    printf("    (c) brut sature [-2000,900,900] : %s -> critere %d\n", nom(s.r), s.crit);
+    CHECK(s.r == F4_REFUS_SATURATION && s.crit == 2000, "(c) critere %d au lieu de 2000", s.crit);
+    s = isr_etat(29, 14, 14, OFF_2048, 0x03u, 1);                            /* (d) masque != 0b111 */
+    printf("    (d) masque 0b011 [29,14,14] : %s -> entrees trip [%d,%d,%d] (reconstruction attendue [29,14,-43])\n",
+           nom(s.r), s.t[0], s.t[1], s.t[2]);
+    CHECK(s.r == F4_REFUS_MASQUE && s.t[0] == 29 && s.t[1] == 14 && s.t[2] == -43, "(d) entrees != reconstruction");
+#endif
 
     if (argc > 1) {
         FILE *f = fopen(argv[1], "r");

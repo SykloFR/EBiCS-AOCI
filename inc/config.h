@@ -129,9 +129,10 @@
    Alim de labo 24 V / 0,5-1 A, moteur a vide. Echelle 3,14 points/A (octet 0x0803D800 = 2 lu le 20/10/2026). */
 #ifdef BENCH_BUILD
 #undef PH_CURRENT_MAX
-#define PH_CURRENT_MAX 12        // ~3,8 A de phase
+#define PH_CURRENT_MAX 20        // ~6,4 A de phase (decision de revue du 27/10 : echelle 6 a 11 pts en une seance)
 #undef PH_CURRENT_TRIP
-#define PH_CURRENT_TRIP 16       // ~5 A de phase
+#define PH_CURRENT_TRIP 45       // ~14 A de phase : garde-fou court-circuit / amorcage croise (decision du 27/10) ;
+                                 // au banc, l'alim limitee a 1,5 A et la duree de 3 s protegent ; production : 377
 #undef BATTERYCURRENT_MAX
 #define BATTERYCURRENT_MAX 2000  // mA : seconde barriere derriere la limite de l'alim de labo
 #undef VOLTAGE_MIN
@@ -141,7 +142,7 @@
 #define U_MAX_BENCH 1500L        // CCR max ~1738 : 252 ticks au sommet pour 180 necessaires (1640 ne laissait que 3 ticks de marge)
 #define BENCH_NO_EEPROM          // page 0x0803F000 ni lue ni ecrite : MP vient des macros ci-dessus (la page contient MP d'un ancien build)
 #define BENCH_OL_UD_MAX 60       // outil vecteur fixe : u_d plafonne a 60/2048 de Vbat (~0,7 V a 24 V)
-#define BENCH_WALK_ILIM_MAX 5    // home trainer (avis Fangyan 26/10) : walk assist par CAN plafonne a 5 pts (~1,6 A)
+#define BENCH_WALK_ILIM_MAX 15   // home trainer (decision du 27/10) : walk par CAN plafonne a 15 pts ; echelle de seance 6/8/10/11
 /* PORTE 4, correctif F1 (26/10/2026, trip a vide sur le velo) : offsets de phase repris pont en commutation, trois phases a
    50 % (vecteur nul), apres la mesure bras bas ferme qui sert de controle. */
 #define CAL_PONT_LIM 60          // pts : |brut - offset bras bas ferme| tenu PH_TRIP_PERIODS periodes pendant la mesure -> defaut 10

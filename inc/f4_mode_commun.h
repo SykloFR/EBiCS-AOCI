@@ -86,10 +86,17 @@ void f4_entrees_trip(int16_t t[3], int16_t p1, int16_t p2, const int16_t mes[3],
     t[0] = p1; t[1] = p2; t[2] = (int16_t)(-(p1 + p2));
 #ifdef F4_LOGIQUE_ACTUELLE
     (void)mes; (void)masque;
-#else
+#elif defined(F4_ENTREES_MAX_4BCD33F)
+    /* regle de 4bcd33f (pour le test hote) : par phase, la plus grande de la reconstruction et de la mesure */
     if (masque != F4_MASQUE_TOUTES) return;
     for (int k = 0; k < 3; k++)
         if (f4_abs16(mes[k]) > f4_abs16(t[k])) t[k] = mes[k];
+#else
+    /* decision de revue du 27/10 : trois voies lisibles -> le trip prend les trois mesures directes (apres F4 si elle est
+       appliquee, brutes sinon). Avec la regle precedente, un pic de mode commun refuse par F4 ([26,26,24], capture du
+       27/10) devenait -50 pts par la reconstruction. Masque different : reconstruction, comme avant. */
+    if (masque != F4_MASQUE_TOUTES) return;
+    t[0] = mes[0]; t[1] = mes[1]; t[2] = mes[2];
 #endif
 }
 

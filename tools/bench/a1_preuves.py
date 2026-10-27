@@ -223,6 +223,16 @@ for k in ("13", "32", "26", "64", "45", "51"):
     print(f"   Hall_{k} = {v} ({(v % 2**32) * 360 / 2**32:.1f} deg) ; en-tete rotation : {attendu.get(k)}")
 print("valeurs initiales = bench_hall_rotation.h :", "OK" if ok_t else "A VERIFIER (en-tete absent ou valeurs differentes)")
 
+section("Echelle de courant (decision de revue du 27/10/2026)")
+mv = {k: v for k, v in re.findall(r"^#define (PH_CURRENT_TRIP|PH_CURRENT_MAX|BENCH_WALK_ILIM_MAX|BRIDE_ERPS_DEBUT|BRIDE_ERPS_FIN) (\S+)", macros, re.M)}
+print("macros :", mv)
+print("seuils de banc 45 / 20 / 15 :", "OK" if (mv.get("PH_CURRENT_TRIP"), mv.get("PH_CURRENT_MAX"), mv.get("BENCH_WALK_ILIM_MAX")) == ("45", "20", "15") else "A VERIFIER")
+nom_us = "update_setpoint" if "update_setpoint" in syms else "main"
+a_us, t_us = syms[nom_us][0], syms[nom_us][1]
+us = run("arm-none-eabi-objdump", "-d", "--no-show-raw-insn", f"--start-address={a_us:#x}", f"--stop-address={a_us + t_us:#x}", ELF)
+print(f"bride erps : {nom_us} lit ui16_erps et ui16_timertics :", "OK" if lit_adresse(us, "ui16_erps") and lit_adresse(us, "ui16_timertics") else "A VERIFIER")
+print("regle F4 des entrees du trip : prouvee par le test hote tools/test_f4_mode_commun.c (en-tete reel)")
+
 section("Table de vecteurs (debut de ebics.bin) : entrees qui tombent sur Default_Handler")
 names = []
 for l in open("port_f10x/startup_gd32f10x_hd.S", encoding="ascii").read().split("__gVectors:")[1].splitlines():

@@ -21,8 +21,8 @@ from bench_can_cmd import Banc, STATUTS
 PREFIXE = sys.argv[1]
 ILIM = int(sys.argv[2]) if len(sys.argv) > 2 else 5
 DUREE = float(sys.argv[3]) if len(sys.argv) > 3 else 3.0
-if not 1 <= ILIM <= 5:
-    sys.exit("ILIM entre 1 et 5 pts (GO Fangyan : 3 et 5 points)")
+if not 1 <= ILIM <= 11:
+    sys.exit("ILIM entre 1 et 11 pts (decision de revue du 27/10 : echelle 6 / 8 / 10 / 11, plafond 11)")
 AVANT = {64, 45, 51, 13, 32, 26}
 ARRIERE = {46, 62, 23, 31, 15, 54}
 
