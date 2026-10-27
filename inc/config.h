@@ -110,7 +110,14 @@
 #define PH_CURRENT_TRIP 377      // points : 120 A nominal du palier 3 du firmware AOCI d'origine (80 / 100 / 120 A). A relire.
 #define PH_TRIP_PERIODS 6        // periodes PWM consecutives au-dessus du seuil avant coupure (origine : 6, soit ~0,36 ms)
 #define TEMP_SENSOR_REQUIRED 1   // 1 : sonde de temperature absente / hors plage = pas d'assistance (a mettre a 0 pour un essai de banc sans NTC)
+#ifdef BENCH_BUILD
+/* Porte 4, 27/10/2026 (t24) : theta decroissant (repere A5) = avant physique ; avec -1 le walk poussait le moteur en
+   arriere derriere sa roue libre. +1 : couple vers theta decroissant et decalage 6-step du bon cote (main.c,
+   get_standstill_position selon le sens). Hors banc, MP.reverse vient de Para1[18] (afficheur) : a regler a part. */
+#define REVERSE 1
+#else
 #define REVERSE -1 //1 for normal direction, -1 for reverse //use field Motor Type (Para1[18]) 1 = 1, 0 = -1
+#endif
 #define PUSHASSIST_CURRENT 300
 #define VOLTAGE_MIN 1773 //30,0 V : coupure basse tension du firmware AOCI 36V15A d'origine (pack 10S). Unite = points ADC (comparaison avec voltage_raw_filtered), 59,1 points/V sur la carte AOCI : 30 x 59,1 = 1773. Rampe d'assistance sur les 176 points suivants (~3 V).
 #define SYSTEM_VOLTAGE 36// in V (cible AOCI 36V 15A, pack 10S)

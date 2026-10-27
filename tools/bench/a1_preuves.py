@@ -127,6 +127,15 @@ else:
     print("offset_cal_pont_50 integree (inline) : garde lue dans calibrate_current_offsets :",
           "OK" if lit_adresse(cal, "offset_cal_pont") else "A VERIFIER")
 
+section("Sens du walk (27/10/2026, t24) : REVERSE +1 et angle a l'arret selon le sens")
+mrev = re.search(r"^#define REVERSE (-?\d+)", macros, re.M)
+print("REVERSE du build de banc = +1 :", "OK" if mrev and mrev.group(1) == "1" else f"A VERIFIER ({mrev and mrev.group(1)})")
+gs = func("get_standstill_position", 0) if "get_standstill_position" in syms else func("main", 0)
+halls = ("Hall_13", "Hall_32", "Hall_26", "Hall_64", "Hall_45", "Hall_51")
+print("get_standstill_position lit MP (reverse) et les six Hall_xy :",
+      "OK" if lit_adresse(gs, "MP") and all(lit_adresse(gs, h) for h in halls) else "A VERIFIER (inline ?)")
+print("simulation sur les tables du depot : python -I tools/bench/simu_sens_patch.py (critere : couple avant >= 0,80)")
+
 section("Table de vecteurs (debut de ebics.bin) : entrees qui tombent sur Default_Handler")
 names = []
 for l in open("port_f10x/startup_gd32f10x_hd.S", encoding="ascii").read().split("__gVectors:")[1].splitlines():

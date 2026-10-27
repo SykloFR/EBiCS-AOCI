@@ -2200,6 +2200,23 @@ void get_standstill_position(){
 
 	  delay_1ms(25);
 	  ui8_hall_state = (GPIO_ISTAT(GPIOC)>>6)&0x07;
+#ifdef BENCH_BUILD
+	/* Porte 4, 27/10/2026 : a l'arret le 6-step applique hall - MP.reverse*30 deg. Avec MP.reverse = 1 (couple vers theta
+	   decroissant), on entre dans le secteur par son bord HAUT : prendre ce bord pour viser le milieu du secteur
+	   (simulation : couple avant >= 83 % sur les 6 etats, contre 47 % en moyenne et ~0 pres du bord avec le bord bas). */
+	if (MP.reverse > 0) {
+		switch (ui8_hall_state) {
+			case 2: q31_rotorposition_hall = Hall_26; break;
+			case 6: q31_rotorposition_hall = Hall_64; break;
+			case 4: q31_rotorposition_hall = Hall_45; break;
+			case 5: q31_rotorposition_hall = Hall_51; break;
+			case 1: q31_rotorposition_hall = Hall_13; break;
+			case 3: q31_rotorposition_hall = Hall_32; break;
+		}
+		q31_rotorposition_absolute = q31_rotorposition_hall;
+		return;
+	}
+#endif
 		switch (ui8_hall_state) {
 			//6 cases for forward direction
 			case 2:

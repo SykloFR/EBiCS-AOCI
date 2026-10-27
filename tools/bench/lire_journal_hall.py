@@ -2,7 +2,8 @@
 Aucun acces materiel : lit le CSV ecrit par t22 (PREFIXE.csv) ou une liste JSON de trames E20A decodees
 (bench_can_decode.decode : rang, cas, tics, six_step, sens, pwm, angle_deg, hj_seq).
 
-Usage : python lire_journal_hall.py JOURNAL.csv|JOURNAL.json [--angles inc/bench_hall_angles.h] [--detail] [--json]
+Usage : python lire_journal_hall.py JOURNAL.csv|JOURNAL.json [--angles inc/bench_hall_angles.h] [--reverse 1|-1] [--detail]
+        [--json]   (--reverse : MP.reverse du build lu ; -1 jusqu'a 713f4dd, +1 depuis le correctif de sens du 27/10)
 
 CLASSES (une seule par passage, testees DANS CET ORDRE ; la premiere satisfaite l'emporte) :
   e  aucun front           : N < N_MIN (2 fronts journalises).
@@ -18,7 +19,9 @@ Conventions (relevé A5, BENCH_HALL_ORDER = -1) : sequence avant 6-4-5-1-3-2 (ca
 sens detecte EBiCS = +1 ; arriere = cas 46,62,23,31,15,54, sens -1.
 ATTENTION (comparaison avec le firmware d'origine, 27/10) : « avant » ici = sens EBiCS (theta croissant), PAS le sens
 physique. Le firmware d'origine entraine en O 4-6-2-3-1-5 = E 1-5-4-6-2-3, c'est-a-dire theta DECROISSANT ; theta
-croissant serait donc l'arriere physique (a confirmer par t23). Lire les cas, pas l'etiquette.
+croissant est l'arriere physique (CONFIRME par t24, 27/10). Avec --reverse 1 (defaut, builds corriges), les classes
+b / d et l'avance nette sont comptees par rapport au sens COMMANDE (theta decroissant) ; avec -1, par rapport a theta
+croissant. Les colonnes du CSV de t22 (avant / arriere) restent en sens EBiCS : lire les cas, pas l'etiquette.
 
 LIMITES DU JOURNAL (verifiees dans le source, voir rapport) :
   - duree = capture TIMER2 (u16, 2 us, compteur 0xFFFF relance a chaque front) : un ecart > 131,07 ms est enregistre
@@ -45,7 +48,7 @@ AVANCE_D = 6                 # d : secteurs
 AVANCE_A = 2                 # a : |avance nette| max
 PART_AR_A = 0.50             # a : part d'allers-retours parmi les paires valides consecutives
 TOL_ANGLE_DEG = 1.6          # angle journal vs frontiere attendue (troncature u8 = 1,4 deg)
-REVERSE = -1                 # MP.reverse du build de banc (config.h:113)
+REVERSE = 1                  # MP.reverse du build de banc depuis le 27/10 (config.h) ; --reverse -1 pour 713f4dd et avant
 
 SEQ_AVANT = [6, 4, 5, 1, 3, 2]
 AVANT = {SEQ_AVANT[i] * 10 + SEQ_AVANT[(i + 1) % 6] for i in range(6)}
@@ -134,6 +137,8 @@ def analyser(fr, hall):
     valides = [v for v in fr if v["cas"] in AVANT or v["cas"] in ARRIERE]
     av = sum(v["cas"] in AVANT for v in fr)
     ar = sum(v["cas"] in ARRIERE for v in fr)
+    if REVERSE > 0:              # couple commande vers theta decroissant (avant physique, t24) : classes relatives au sens commande
+        av, ar = ar, av
     hors = n - av - ar
     res.update(avant=av, arriere=ar, hors_sequence=hors, avance_nette=av - ar,
                tours_electriques=round((av - ar) / 6.0, 2),
@@ -221,6 +226,10 @@ def main():
     if not args:
         sys.exit(__doc__)
     hall = dict(HALL_DEG)
+    if "--reverse" in sys.argv:
+        global REVERSE
+        REVERSE = int(sys.argv[sys.argv.index("--reverse") + 1])
+        args = [a for a in args if a != sys.argv[sys.argv.index("--reverse") + 1]]
     if "--angles" in sys.argv:
         hall = lire_angles(sys.argv[sys.argv.index("--angles") + 1])
         args = [a for a in args if a != sys.argv[sys.argv.index("--angles") + 1]]
