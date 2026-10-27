@@ -9,7 +9,7 @@ import can
 
 PERIODE = {0xE000: 20, 0xE001: 20, 0xE002: 50, 0xE100: 50, 0xE101: 50, 0xE102: 50, 0xE103: 50,
            0xE200: 100, 0xE201: 100, 0xE202: 100, 0xE203: 1000, 0xE204: 1000, 0xE205: 1000, 0xE207: 1000,
-           0xE208: 20, 0xE209: 1000, 0xE20A: 20, 0xE20B: 20, 0xE20C: 20}
+           0xE208: 20, 0xE209: 1000, 0xE20A: 20, 0xE20B: 20, 0xE20C: 20, 0xE20D: 20}
 
 
 def decode(cle, d):
@@ -64,6 +64,9 @@ def decode(cle, d):
         i8 = lambda i: struct.unpack_from("<b", d, i)[0]
         return dict(rang=u8(1), ud=i8(2) * 16, uq=i8(3) * 16, angle_deg=round(u8(4) * 360 / 256, 1), hall=d[5] & 7,
                     cercle=d[5] >> 4 & 1, foc=d[5] >> 5 & 1, tenu=d[5] >> 6 & 1, pt_seq=u8(6), figee=d[7] & 1, pleine=d[7] >> 1 & 1)
+    if cle == 0xE20D:
+        i8 = lambda i: struct.unpack_from("<b", d, i)[0]
+        return dict(rang=u8(1), av=(i8(2), i8(3), i8(4)), pt_seq=u8(6), figee=d[7] & 1, pleine=d[7] >> 1 & 1)
     if cle == 0xE209:
         return dict(cap_n=u8(1), cap_trip=u8(2), precharge_ms=u8(3), cap_seq=u8(4), chctl2=hex(u16(5)), cap_N=u8(7))
     if cle == 0xE207:

@@ -35,8 +35,10 @@
  *               numero de capture (u8), drapeaux (u8 : b0 figee, b1 pleine = PT_N periodes)
  *   E20C 50 Hz  capture enrichie, meme rang que E20B : rang r (u8, 0xFF = vide), u_d / 16 (i8), u_q / 16 (i8), angle
  *               applique (u8, 360/256 deg), octet (b0-2 etat Hall, b4 limitation en cercle, b5 FOC calculee,
- *               b6 angle tenu : front Hall en attente, pepin evite),
- *               numero de capture (u8), drapeaux (u8 : b0 figee, b1 pleine)
+ *               b6 angle tenu : front Hall en attente, pepin evite), numero de capture (u8), drapeaux (u8 : b0 figee,
+ *               b1 pleine)
+ *   E20D 50 Hz  capture avant F4, meme rang que E20B : rang r (u8, 0xFF = vide), ph1, ph2, ph3 apres offset et avant F4
+ *               (i8, pts, satures a +-127), numero de capture (u8), drapeaux (u8 : b0 figee, b1 pleine)
  *   E206  sur commande : opcode (u8), cmd_seq (u8), statut (u8 : 0 accepté, 1 refusé sans heartbeat depuis 500 ms,
  *               2 refusé défaut verrouillé, 3 refusé frein ou demande d'assistance, 4 commande invalide,
  *               5 refusé offsets non calibrés : roue jamais arrêtée depuis le démarrage, 6 refusé angles du codeur non
@@ -103,6 +105,7 @@ extern volatile uint8_t pt_st[PT_N];
 extern volatile uint8_t pt_idx, pt_n, pt_gel, pt_seq;
 extern volatile int8_t pt_ud[PT_N], pt_uq[PT_N];
 extern volatile uint8_t pt_ang[PT_N], pt_x[PT_N];
+extern volatile int8_t pt_av[3][PT_N];
 extern volatile uint8_t bench_ol_enable;
 extern volatile uint8_t bench_ol_active;
 extern volatile int16_t bench_ol_ud;
@@ -137,6 +140,7 @@ static bench_trame_t trames[] = {
     {0xE2, 0x03, 1000, 0, 0}, {0xE2, 0x04, 1000, 0, 0}, {0xE2, 0x05, 1000, 0, 0}, {0xE2, 0x07, 1000, 0, 0},
     {0xE2, 0x08,   20, 0, 0}, {0xE2, 0x09, 1000, 0, 0}, {0xE2, 0x0A, 20, 0, 0},
     {0xE2, 0x0B,   20, 0, 0}, {0xE2, 0x0C,   20, 0, 0},
+    {0xE2, 0x0D,   20, 0, 0},
 };
 #define NB_TRAMES (sizeof(trames) / sizeof(trames[0]))
 
@@ -146,6 +150,7 @@ static uint8_t cap_tx = 0;                               /* prochain rang envoye
 static uint8_t hj_tx = 0;                                /* prochain rang envoye par E20A */
 static uint8_t pt_tx = 0;                                /* prochain rang envoye par E20B */
 static uint8_t pc_tx = 0;                                /* prochain rang envoye par E20C */
+static uint8_t pa_tx = 0;                                /* prochain rang envoye par E20D */
 /* courants de phase : sommes des carrés et crête sur la fenêtre de E100 (200 échantillons à 4 kHz) */
 static uint32_t somme2[3] = {0, 0, 0};
 static uint16_t n_ech = 0;
@@ -421,6 +426,16 @@ static uint8_t remplir(const bench_trame_t* t, uint8_t* d)
         uint8_t k = (n < PT_N) ? pc_tx : (uint8_t)((pt_idx + pc_tx) % PT_N);   /* ordre chronologique */
         d[1] = pc_tx; d[2] = (uint8_t)pt_ud[k]; d[3] = (uint8_t)pt_uq[k]; d[4] = pt_ang[k]; d[5] = pt_x[k];
         pc_tx++;
+        return 8;
+    }
+    case 0xE20D: {
+        uint8_t n = pt_n;
+        d[6] = pt_seq; d[7] = (uint8_t)((pt_gel ? 1u : 0u) | (n >= PT_N ? 2u : 0u));
+        if (n == 0) { d[1] = 0xFF; return 8; }
+        if (pa_tx >= n) pa_tx = 0;
+        uint8_t k = (n < PT_N) ? pa_tx : (uint8_t)((pt_idx + pa_tx) % PT_N);   /* ordre chronologique */
+        d[1] = pa_tx; d[2] = (uint8_t)pt_av[0][k]; d[3] = (uint8_t)pt_av[1][k]; d[4] = (uint8_t)pt_av[2][k]; d[5] = 0;
+        pa_tx++;
         return 8;
     }
     case 0xE207:

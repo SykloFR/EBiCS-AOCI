@@ -69,6 +69,7 @@ with Banc() as b:
     pt_seq = b.dernier.get(0xE20B, {}).get("pt_seq")
     avant_trip = sorted((v for (s, r), v in b.avant_trip.items() if s == pt_seq), key=lambda v: v["rang"])
     enrichie = {r: v for (s, r), v in b.avant_trip_u.items() if s == pt_seq}   # E20C, absente avant la capture enrichie
+    av_f4 = {r: v for (s, r), v in b.avant_f4.items() if s == pt_seq}          # E20D, absente avant la capture avant F4
     fronts = sorted((v for (s, r), v in b.fronts.items() if s == seq), key=lambda v: v["rang"])
     defaut = b.defaut_apres(t_stop)                       # E200 recue apres WALK_STOP ; None : indetermine
     defaut = "indetermine (aucune E200 apres WALK_STOP)" if defaut is None else defaut
@@ -104,11 +105,12 @@ if avant_trip:
     with open(PREFIXE + "_avant_trip.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["rang", "ph1", "ph2", "ph3", "f4", "six_step", "ud", "uq", "angle_deg", "hall", "cercle", "foc",
-                    "tenu"])
+                    "tenu", "r1", "r2", "r3"])
         for v in avant_trip:
             u = enrichie.get(v["rang"], {})
             w.writerow([v["rang"], *v["ph"], "non evaluee" if v["f4_non_evaluee"] else F4[v["f4"]], v["six_step"]]
-                       + [u.get(k, "") for k in ("ud", "uq", "angle_deg", "hall", "cercle", "foc", "tenu")])
+                       + [u.get(k, "") for k in ("ud", "uq", "angle_deg", "hall", "cercle", "foc", "tenu")]
+                       + list(av_f4.get(v["rang"], {}).get("av", ("", "", ""))))
     n = len(avant_trip)
     crete = max(max(abs(x) for x in v["ph"]) for v in avant_trip)
     refus = {F4[k]: sum(1 for v in avant_trip if not v["f4_non_evaluee"] and v["f4"] == k) for k in (1, 2, 3)}
@@ -174,3 +176,30 @@ if avant_trip and enrichie:
         "H4 : u_d / u_q oscillent (>= 20 % de u_abs)" if max(cc("ud"), cc("uq")) >= 0.20 else
         "H3 refutee (sauts <= 3 deg)" if sauts and all(abs(s[2]) <= 3 for s in sauts) else
         "aucune hypothese nette : arret et revue"))
+
+# capture avant F4 (capture-avant-f4-attendu-20261027.md) : somme des trois voies avant F4
+if avant_trip and av_f4:
+    import math
+    av = [av_f4[v["rang"]]["av"] for v in avant_trip if v["rang"] in av_f4]
+    n = len(av)
+    m = [sum(x[k] for x in av) / n for k in range(3)]
+    sommes = [sum(x) for x in av]
+    S = sum(m)
+    sig = (sum((x - S) ** 2 for x in sommes) / n) ** 0.5 / math.sqrt(n)
+    post = [sum(v["ph"][k] for v in avant_trip) / len(avant_trip) for k in range(3)]
+    al, be = post[0], (post[0] + 2 * post[1]) / math.sqrt(3)
+    fixe = math.hypot(al, be)
+    print(f"avant F4 : {n} periodes, moyennes ph1 {m[0]:+.1f} ph2 {m[1]:+.1f} ph3 {m[2]:+.1f}, somme S {S:+.1f} "
+          f"(sigma_S {sig:.2f}) ; apres F4 : composante fixe {fixe:.1f} pts")
+    if abs(S) < 1.5 and fixe >= 2:
+        verdict = "(c) VRAI COURANT CONTINU (somme avant F4 ~ 0)"
+    elif abs(S) >= 3 and abs(S) >= 3 * sig:
+        if abs(m[0]) <= 1.5 and abs(m[1]) <= 1.5 and m[2] * S > 0:
+            verdict = "DECALAGE DE MESURE (a) sur ph3 seule"
+        elif abs(m[2]) <= 1.5 and m[0] * S > 0 and m[1] * S > 0:
+            verdict = "DECALAGE DE MESURE (b) commun a ph1 et ph2"
+        else:
+            verdict = "decalage de mesure, repartition non conforme a (a) ou (b) : indetermine, arret et revue"
+    else:
+        verdict = "INDETERMINE : arret et revue"
+    print("lecture avant F4 (criteres ecrits avant) :", verdict)

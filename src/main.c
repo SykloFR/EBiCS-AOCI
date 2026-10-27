@@ -337,6 +337,10 @@ static uint8_t pt_k = 0xFF;                       /* rang ecrit par le trip dans
    par le materiel, CH0IF leve) mais pas encore traite par TIMER2_IRQHandler (meme priorite, IRQ 29 apres l'IRQ 18) :
    l'angle est tenu une periode au lieu d'etre recalcule depuis l'ancienne frontiere (60 deg de retard). */
 volatile uint16_t pepins_tenus = 0;               /* nombre de periodes tenues (lecture SWD) */
+/* Capture avant F4 (27/10/2026, capture-avant-f4-attendu-20261027.md) : pour la meme periode que pt_ph, les trois courants
+   apres offset et AVANT f4_mode_commun (i8, satures) ; leur somme separe un decalage de mesure d'un vrai courant
+   continu (somme nulle). Relue par CAN (E20D). */
+volatile int8_t pt_av[3][PT_N];
 static uint8_t pt_tenu = 0;                       /* angle tenu dans la periode en cours (bit 6 de pt_x, E20C) */
 #endif
 
@@ -1938,6 +1942,7 @@ void ADC0_1_IRQHandler(void)
        intacts et le trip voit la lecture (f4_entrees_trip, plus bas). Brut = registre injecte (CURRENT_SIGN x courant)
        + offset injecte (ADC_IOFF0). f4_mes : les trois voies apres F4, avant la reconstruction d'EBiCS. */
     uint8_t f4_m = 0, f4_st = 4u;                  /* f4_st : resultat de F4 pour la capture avant trip (4 = non evaluee) */
+    const int16_t f4_av[3] = {i16_ph1_current, i16_ph2_current, i16_ph3_current};   /* avant F4 (capture E20D) */
     if(!offset_cal_active){
     	f4_m = f4_masque;
     	int32_t b1 = CURRENT_SIGN * i16_ph1_current + (int32_t)(ADC_IOFF0(ADC2) & ADC_IOFFX_IOFF);
@@ -2002,6 +2007,9 @@ void ADC0_1_IRQHandler(void)
     		pt_ph[2][pt_idx] = CAP_SAT(f4_t[2]);
     		pt_st[pt_idx] = (uint8_t)(f4_st | (ui8_6step_flag ? 8u : 0u));
     		pt_ang[pt_idx] = 0; pt_ud[pt_idx] = 0; pt_uq[pt_idx] = 0;
+    		pt_av[0][pt_idx] = CAP_SAT(f4_av[0]);
+    		pt_av[1][pt_idx] = CAP_SAT(f4_av[1]);
+    		pt_av[2][pt_idx] = CAP_SAT(f4_av[2]);
     		pt_x[pt_idx] = (uint8_t)((GPIO_ISTAT(GPIOC) >> 6) & 0x07u);   /* b5 pose plus bas si la FOC tourne */
     		pt_k = pt_idx;
     		pt_idx = (uint8_t)((pt_idx + 1u) % PT_N);

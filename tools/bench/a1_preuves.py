@@ -151,9 +151,10 @@ isr_complet = run("arm-none-eabi-objdump", "-d", "--no-show-raw-insn", f"--start
                   f"--stop-address={a_isr + t_isr:#x}", ELF)          # toute la fonction, pools litteraux compris
 print("   lit TIMER2_INTF (base TIMER2 0x40000400, decalage #16) :",
       "OK" if re.search(r"\.word\s+0x40000400\b", isr_complet) and re.search(r"#16\]", isr_complet) else "A VERIFIER")
+print("capture avant F4 (27/10) : ADC0_1_IRQHandler ecrit pt_av :", "OK" if lit_adresse(isr_complet, "pt_av") else "A VERIFIER")
 rpi = func("runPIcontrol", 0)
 print("runPIcontrol ecrit pt_cercle (limitation en cercle) :", "OK" if lit_adresse(rpi, "pt_cercle") else "A VERIFIER")
-for s in ("pt_ph", "pt_st", "pt_ang", "pt_ud", "pt_uq", "pt_x"):
+for s in ("pt_ph", "pt_st", "pt_ang", "pt_ud", "pt_uq", "pt_x", "pt_av"):
     v = syms.get(s)
     print(f"{s:10s} " + (f"{v[0]:#010x} taille {v[1]} octets" if v else "absent"))
 

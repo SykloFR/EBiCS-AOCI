@@ -60,6 +60,7 @@ class Banc:
         self.fronts = {}                  # E20A : (hj_seq, rang) -> trame decodee + t_rx (journal des fronts Hall)
         self.avant_trip = {}              # E20B : (pt_seq, rang) -> trame decodee (capture des periodes avant le trip)
         self.avant_trip_u = {}            # E20C : (pt_seq, rang) -> trame decodee (u_d, u_q, angle applique, Hall, cercle)
+        self.avant_f4 = {}                # E20D : (pt_seq, rang) -> trame decodee (trois voies apres offset, avant F4)
         self.flux = None                  # liste : (time.monotonic, cle, trame decodee) des trames de FLUX, si active (= [])
         self._verrou = threading.Lock()
         self._hb_actif = threading.Event()
@@ -109,6 +110,9 @@ class Banc:
                 if cle == 0xE20C and self.dernier[cle]["rang"] != 0xFF and self.dernier[cle]["figee"]:
                     d = self.dernier[cle]
                     self.avant_trip_u[(d["pt_seq"], d["rang"])] = d
+                if cle == 0xE20D and self.dernier[cle]["rang"] != 0xFF and self.dernier[cle]["figee"]:
+                    d = self.dernier[cle]
+                    self.avant_f4[(d["pt_seq"], d["rang"])] = d
                 if cle == 0xE208:
                     d, sq = self.dernier[cle], self.dernier.get(0xE209, {}).get("cap_seq")
                     self.capture[d["rang"]], self.capture[d["rang"] + 1] = (sq, d["a"]), (sq, d["b"])
