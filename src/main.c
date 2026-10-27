@@ -776,6 +776,9 @@ int main(void)
     	//check brake sensor state
     	if(!gpio_input_bit_get(GPIOC,GPIO_PIN_13))MS.brake_active_flag=1;
     	else MS.brake_active_flag=0;
+#ifdef ROUTE_BUILD
+    	if(MS.assist_level > ROUTE_NIVEAU_MAX) MS.assist_level = ROUTE_NIVEAU_MAX;   /* premier roulage : niveau 1 seulement */
+#endif
     	// update scaled current and speed
     	if(MS.assist_level!=assist_level_old){
     		speedlimitx100_scaled=MP.speedLimitx100*MP.assist_settings[level_to_array_element[MS.assist_level]][1]/100;
@@ -2548,7 +2551,7 @@ uint16_t map_rezi(int32_t actual_value, int32_t actual_time, int32_t timeout, in
 uint16_t update_setpoint(void){
 
 				//calculate iq setpoint
-#ifdef BENCH_BUILD
+#if defined(BENCH_BUILD) && !defined(ROUTE_BUILD)
 	            /* PORTE 4, home trainer (avis Fangyan 26/10) : seule assistance possible, le walk assist lance par CAN (WALK_START,
 	               heartbeat obligatoire, bench_can.c), plafonne a bench_walk_ilim <= BENCH_WALK_ILIM_MAX. Couple, accelerateur et
 	               bouton walk de l'afficheur sont ignores. Les reductions (batterie, temperature, sonde) s'appliquent ensuite. */

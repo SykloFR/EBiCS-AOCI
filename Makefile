@@ -47,6 +47,15 @@ SRCDIR   = src
 AOCI_OUT = $(BUILD)/ebics_aoci_full.bin
 endif
 
+# Build ROUTE porte 4 (decision de revue du 27/10/2026, voir inc/config.h, bloc ROUTE_BUILD) : mingw32-make CORE=m3 ROUTE=1 aoci
+# = code du build de banc (correctifs du 26-27/10, telemetrie E2xx en emission seule) + assistance par l'afficheur
+# (chemin de production), seuils de production (PH_CURRENT_MAX 30), niveau 1, 15 km/h -> dossier build-m3-route
+ifeq ($(ROUTE),1)
+BENCH        := 1
+CURRENT_SIGN := 1
+DEFS         += -DROUTE_BUILD
+endif
+
 # Build de banc porte 4 (voir inc/config.h, bloc BENCH_BUILD) : mingw32-make CORE=m3 BENCH=1 CURRENT_SIGN=1 aoci (F6)
 # -> dossier build-m3-banc, image ..._BANC_aoci_full.bin, fichiers .su (usage de pile par fonction)
 ifeq ($(BENCH),1)
@@ -59,8 +68,13 @@ DEFS    += -DBENCH_BUILD -DCURRENT_SIGN=$(CURRENT_SIGN)
 GIT_HASH  ?= $(or $(shell git rev-parse --short=8 HEAD 2>/dev/null),0)
 GIT_DIRTY ?= $(if $(shell git status --porcelain --untracked-files=no 2>/dev/null),1,0)
 DEFS    += -DBENCH_GIT_HASH=0x$(GIT_HASH)u -DBENCH_GIT_DIRTY=$(GIT_DIRTY)
+ifeq ($(ROUTE),1)
+BUILD   := $(BUILD)-route
+AOCI_OUT = $(BUILD)/ebics_ROUTE_aoci_full.bin
+else
 BUILD   := $(BUILD)-banc
 AOCI_OUT = $(BUILD)/ebics_BANC_aoci_full.bin
+endif
 STACKFLAGS = -fstack-usage
 # bench_can.o embarque le hash git (trame E203) : toujours recompilé, sinon un build après commit garderait l'ancien hash
 $(BUILD)/src/bench_can.o: FORCE_BENCH_CAN

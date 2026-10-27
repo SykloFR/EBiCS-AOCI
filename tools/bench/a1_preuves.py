@@ -8,7 +8,8 @@ import hashlib, os, re, struct, subprocess, sys
 B = sys.argv[1] if len(sys.argv) > 1 else "build-m3-banc"
 SIGNE = sys.argv[2] if len(sys.argv) > 2 else "1"   # meme valeur que le build (F6 : 1)
 ELF, BIN = f"{B}/ebics.elf", f"{B}/ebics.bin"
-IMG = f"{B}/ebics_BANC_aoci_full.bin"
+ROUTE = B.rstrip("/").endswith("route")          # build route (decision du 27/10) : memes preuves, seuils de production
+IMG = f"{B}/ebics_ROUTE_aoci_full.bin" if ROUTE else f"{B}/ebics_BANC_aoci_full.bin"
 
 
 def run(*cmd):
@@ -30,7 +31,7 @@ print(run("arm-none-eabi-size", ELF).strip())
 
 section("Macros effectives (preprocesseur, memes options que le build banc)")
 cflags = ["-mcpu=cortex-m3", "-mthumb", "-mfloat-abi=soft", "-DGD32F10X_HD", "-DUSE_STDPERIPH_DRIVER", "-DARM_MATH_CM3",
-          "-DHXTAL_VALUE=12000000U", "-DBENCH_BUILD", f"-DCURRENT_SIGN={SIGNE}", "-Iport_f10x", "-Iinc", "-IFirmware_F10x/CMSIS",
+          "-DHXTAL_VALUE=12000000U", "-DBENCH_BUILD", f"-DCURRENT_SIGN={SIGNE}"] + (["-DROUTE_BUILD"] if ROUTE else []) + [ "-Iport_f10x", "-Iinc", "-IFirmware_F10x/CMSIS",
           "-IFirmware_F10x/CMSIS/GD/GD32F10x/Include", "-IFirmware_F10x/GD32F10x_standard_peripheral/Include"]
 macros = run("arm-none-eabi-gcc", *cflags, "-dM", "-E", "src/main.c")
 want = r"^#define (BENCH_\w+|PH_CURRENT_MAX|PH_CURRENT_TRIP|PH_TRIP_PERIODS|BATTERYCURRENT_MAX|VOLTAGE_MIN|" \
@@ -224,13 +225,24 @@ for k in ("13", "32", "26", "64", "45", "51"):
 print("valeurs initiales = bench_hall_rotation.h :", "OK" if ok_t else "A VERIFIER (en-tete absent ou valeurs differentes)")
 
 section("Echelle de courant (decision de revue du 27/10/2026)")
-mv = {k: v for k, v in re.findall(r"^#define (PH_CURRENT_TRIP|PH_CURRENT_MAX|BENCH_WALK_ILIM_MAX|BRIDE_ERPS_DEBUT|BRIDE_ERPS_FIN) (\S+)", macros, re.M)}
+mv = {k: v for k, v in re.findall(r"^#define (PH_CURRENT_TRIP|PH_CURRENT_MAX|BENCH_WALK_ILIM_MAX|BRIDE_ERPS_DEBUT|BRIDE_ERPS_FIN|SPEEDLIMIT|ROUTE_NIVEAU_MAX|BATTERYCURRENT_MAX|VOLTAGE_MIN|REVERSE|CURRENT_SIGN) (\S+)", macros, re.M)}
 print("macros :", mv)
-print("seuils de banc 45 / 20 / 15 :", "OK" if (mv.get("PH_CURRENT_TRIP"), mv.get("PH_CURRENT_MAX"), mv.get("BENCH_WALK_ILIM_MAX")) == ("45", "20", "15") else "A VERIFIER")
+if ROUTE:
+    attendu_r = {"PH_CURRENT_TRIP": "377", "PH_CURRENT_MAX": "30", "SPEEDLIMIT": "1500", "ROUTE_NIVEAU_MAX": "2",
+                 "BATTERYCURRENT_MAX": "15000", "VOLTAGE_MIN": "1773", "REVERSE": "1", "CURRENT_SIGN": "1"}
+    ecarts = {k: (mv.get(k), v) for k, v in attendu_r.items() if mv.get(k) != v}
+    print("seuils route (377 / 30 / 15 km/h / niveau 1 / 15 A / 30 V / REVERSE +1 / CURRENT_SIGN +1) :",
+          "OK" if not ecarts else f"A VERIFIER {ecarts}")
+else:
+    print("seuils de banc 45 / 20 / 15 :", "OK" if (mv.get("PH_CURRENT_TRIP"), mv.get("PH_CURRENT_MAX"), mv.get("BENCH_WALK_ILIM_MAX")) == ("45", "20", "15") else "A VERIFIER")
 nom_us = "update_setpoint" if "update_setpoint" in syms else "main"
 a_us, t_us = syms[nom_us][0], syms[nom_us][1]
 us = run("arm-none-eabi-objdump", "-d", "--no-show-raw-insn", f"--start-address={a_us:#x}", f"--stop-address={a_us + t_us:#x}", ELF)
-print(f"bride erps : {nom_us} lit ui16_erps et ui16_timertics :", "OK" if lit_adresse(us, "ui16_erps") and lit_adresse(us, "ui16_timertics") else "A VERIFIER")
+if ROUTE:
+    print(f"route : {nom_us} n'utilise plus le walk par CAN (bench_walk non lu) :", "OK" if not lit_adresse(us, "bench_walk") else "A VERIFIER")
+    print(f"route : {nom_us} lit le niveau d'assistance et la consigne de poussee (MS) :", "OK" if lit_adresse(us, "MS") else "A VERIFIER")
+else:
+    print(f"bride erps : {nom_us} lit ui16_erps et ui16_timertics :", "OK" if lit_adresse(us, "ui16_erps") and lit_adresse(us, "ui16_timertics") else "A VERIFIER")
 print("regle F4 des entrees du trip : prouvee par le test hote tools/test_f4_mode_commun.c (en-tete reel)")
 
 section("Table de vecteurs (debut de ebics.bin) : entrees qui tombent sur Default_Handler")

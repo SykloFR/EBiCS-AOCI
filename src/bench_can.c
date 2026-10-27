@@ -37,6 +37,9 @@
  *               applique (u8, 360/256 deg), octet (b0-2 etat Hall, b4 limitation en cercle, b5 FOC calculee,
  *               b6 angle tenu : front Hall en attente, pepin evite), numero de capture (u8), drapeaux (u8 : b0 figee,
  *               b1 pleine)
+ *   E20E  1 Hz  relecture a l'execution (build route, decision du 27/10) : MP.phase_current_max (u8, pts), seuil du trip
+ *               safety_ph_trip (u16, pts), MP.reverse (i8), limite de vitesse MP.speedLimitx100 / 100 (u8, km/h), niveau
+ *               d'assistance maximal (u8, MS.assist_level ; 0 = pas de borne), MS.assist_level courant (u8)
  *   E20D 50 Hz  capture avant F4, meme rang que E20B : rang r (u8, 0xFF = vide), ph1, ph2, ph3 apres offset et avant F4
  *               (i8, pts, satures a +-127), numero de capture (u8), drapeaux (u8 : b0 figee, b1 pleine)
  *   E206  sur commande : opcode (u8), cmd_seq (u8), statut (u8 : 0 accepté, 1 refusé sans heartbeat depuis 500 ms,
@@ -140,7 +143,7 @@ static bench_trame_t trames[] = {
     {0xE2, 0x03, 1000, 0, 0}, {0xE2, 0x04, 1000, 0, 0}, {0xE2, 0x05, 1000, 0, 0}, {0xE2, 0x07, 1000, 0, 0},
     {0xE2, 0x08,   20, 0, 0}, {0xE2, 0x09, 1000, 0, 0}, {0xE2, 0x0A, 20, 0, 0},
     {0xE2, 0x0B,   20, 0, 0}, {0xE2, 0x0C,   20, 0, 0},
-    {0xE2, 0x0D,   20, 0, 0},
+    {0xE2, 0x0D,   20, 0, 0}, {0xE2, 0x0E, 1000, 0, 0},
 };
 #define NB_TRAMES (sizeof(trames) / sizeof(trames[0]))
 
@@ -225,6 +228,10 @@ static void commande(const can_receive_message_struct* m, uint32_t now)
         repondre(0xFF, 0, 0);
         return;
     }
+#ifdef ROUTE_BUILD
+    (void)now;
+    return;                                              /* build route : telemetrie en emission seule, seul l'ESTOP agit */
+#endif
     if (m->rx_efid == ID_HEARTBEAT) {
         if (!hb_present(now)) hb_debut = now;            /* début d'une présence continue */
         hb_dernier = now; hb_vu = 1;
@@ -428,6 +435,16 @@ static uint8_t remplir(const bench_trame_t* t, uint8_t* d)
         pc_tx++;
         return 8;
     }
+    case 0xE20E:
+        d[1] = (uint8_t)MP.phase_current_max; put16(d + 2, safety_ph_trip); d[4] = (uint8_t)MP.reverse;
+        d[5] = (uint8_t)(MP.speedLimitx100 / 100);
+#ifdef ROUTE_BUILD
+        d[6] = ROUTE_NIVEAU_MAX;
+#else
+        d[6] = 0u;
+#endif
+        d[7] = MS.assist_level;
+        return 8;
     case 0xE20D: {
         uint8_t n = pt_n;
         d[6] = pt_seq; d[7] = (uint8_t)((pt_gel ? 1u : 0u) | (n >= PT_N ? 2u : 0u));

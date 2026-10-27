@@ -15,3 +15,4 @@ tools/bench/**/*.bin
 tools/bench/**/*.elf
 tools/bench/**/*.map
 tools/bench/**/*.exe
+build-m3-route/

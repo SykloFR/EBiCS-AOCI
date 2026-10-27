@@ -162,6 +162,25 @@
 #endif
 #endif
 
+/* PORTE 4, build ROUTE (decision de revue du 27/10/2026, route-points-bloquants-20261027.md) : premier roulage, terrain
+   ferme, rider, niveau 1. Meme code que le banc (sens, premier front, pepins, CCR, table Hall en rotation et ancrage,
+   borne d'interpolation, F4, anti-windup, telemetrie en emission seule) ; assistance par l'afficheur ; MP depuis les
+   macros (page 0x0803F000 non lue, BENCH_NO_EEPROM) ; REVERSE +1 et CURRENT_SIGN +1 du banc. Seuils de production,
+   sauf PH_CURRENT_MAX ramene a 30 pts. _U_MAX reste U_MAX_BENCH (1500) : chaine ADC validee seulement CCR <= 1738. */
+#ifdef ROUTE_BUILD
+#undef PH_CURRENT_MAX
+#define PH_CURRENT_MAX 30        // ~9,5 A de phase (decision du 27/10, seul reglage de puissance qui bouge)
+#undef PH_CURRENT_TRIP
+#define PH_CURRENT_TRIP 377      // production (120 A, palier 3 de l'origine)
+#undef BATTERYCURRENT_MAX
+#define BATTERYCURRENT_MAX 15000 // mA : production (firmware AOCI 36V 15A)
+#undef VOLTAGE_MIN
+#define VOLTAGE_MIN 1773         // production : 30,0 V
+#undef SPEEDLIMIT
+#define SPEEDLIMIT 1500          // 15 km/h (x100) : plafond tant que la chaine ADC haute modulation n'est pas mesuree
+#define ROUTE_NIVEAU_MAX 2       // MS.assist_level 2 = niveau 1 de l'afficheur 5 niveaux (code 0x0B, CAN_Display.c)
+#endif
+
 /* Signe des courants de phase : EBiCS lit i = JDR - offset ; l'origine AOCI calcule I = offset - 2 x JDR.
    Hypothese a verifier au banc (A5 vecteur fixe, A6 premier run) ; hors build banc, comportement EBiCS inchange. */
 #ifndef CURRENT_SIGN
