@@ -110,7 +110,7 @@ def lire_journal(chemin):
         with open(chemin, newline="", encoding="utf-8") as f:
             r = csv.DictReader(f)
             attendu = ["rang", "cas", "transition", "sens_sequence", "duree_ms", "six_step", "sens_detecte", "angle_deg"]
-            if r.fieldnames is None or r.fieldnames[:8] != attendu:
+            if r.fieldnames is None or not set(attendu) <= set(r.fieldnames):   # t22 ajoute t_rx_s depuis 911bf2b
                 sys.exit(f"en-tete inattendu (format t22 attendu {attendu}) : {r.fieldnames}")
             out = [dict(rang=int(v["rang"]), cas=int(v["cas"]), duree_ms=float(v["duree_ms"]),
                         six_step=int(v["six_step"]), sens=int(v["sens_detecte"]), angle_deg=float(v["angle_deg"]),
