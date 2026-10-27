@@ -1164,6 +1164,15 @@ void adc_config(void)
     \param[out] none
     \retval     none
 */
+/* PORTE 4, 27/10/2026 (correctif-ccr-prechargement-attendu-20261027.md) : en build de banc, CCR de CH0-CH2 precharges
+   (OCxPE = 1, comme l'origine) : les valeurs ecrites par l'ISR ADC, qui finit pres du bas du compteur, au milieu des
+   creneaux hauts, ne sont chargees qu'a l'evenement de mise a jour suivant (RCR = 0 : bas et sommet). CH3 (CC4,
+   declenchement ADC et masque F4) reste sans prechargement ; RCR, CCPC et COMG inchanges (variable separee). */
+#ifdef BENCH_BUILD
+#define CCR_PRECHARGE TIMER_OC_SHADOW_ENABLE
+#else
+#define CCR_PRECHARGE TIMER_OC_SHADOW_DISABLE
+#endif
 void timer0_config(void)
 {
 	/* -----------------------------------------------------------------------
@@ -1212,15 +1221,15 @@ void timer0_config(void)
 
 	    timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_0,_T>>1);//grün
 	    timer_channel_output_mode_config(TIMER0,TIMER_CH_0,TIMER_OC_MODE_PWM0);
-	    timer_channel_output_shadow_config(TIMER0,TIMER_CH_0,TIMER_OC_SHADOW_DISABLE);
+	    timer_channel_output_shadow_config(TIMER0,TIMER_CH_0,CCR_PRECHARGE);
 
 	    timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_1,_T>>1);//gelb
 	    timer_channel_output_mode_config(TIMER0,TIMER_CH_1,TIMER_OC_MODE_PWM0);
-	    timer_channel_output_shadow_config(TIMER0,TIMER_CH_1,TIMER_OC_SHADOW_DISABLE);
+	    timer_channel_output_shadow_config(TIMER0,TIMER_CH_1,CCR_PRECHARGE);
 
 	    timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_2,_T>>1);//blau
 	    timer_channel_output_mode_config(TIMER0,TIMER_CH_2,TIMER_OC_MODE_PWM0);
-	    timer_channel_output_shadow_config(TIMER0,TIMER_CH_2,TIMER_OC_SHADOW_DISABLE);
+	    timer_channel_output_shadow_config(TIMER0,TIMER_CH_2,CCR_PRECHARGE);
 
 	    timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_3,(TRIGGER_DEFAULT));//(_T>>1)+500 in the middle of the PWM cycle
 	    /* Comme le firmware AOCI d'origine (CCMR2 = 0x7868, CR2 = 0x2A71) :

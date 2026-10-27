@@ -157,6 +157,32 @@ for s in ("pt_ph", "pt_st", "pt_ang", "pt_ud", "pt_uq", "pt_x"):
     v = syms.get(s)
     print(f"{s:10s} " + (f"{v[0]:#010x} taille {v[1]} octets" if v else "absent"))
 
+section("Prechargement des CCR (27/10/2026) : timer0_config")
+a_t0, t_t0 = syms["timer0_config"][0], syms["timer0_config"][1]
+t0 = run("arm-none-eabi-objdump", "-d", "--no-show-raw-insn", f"--start-address={a_t0:#x}",
+         f"--stop-address={a_t0 + t_t0:#x}", ELF).splitlines()
+
+
+def valeur(reg, avant):
+    """valeur immediate du registre reg au point avant (dernier movs/mov reg, #N, en suivant mov reg, rY)"""
+    for l in reversed(t0[:avant]):
+        m = re.search(rf"\bmovs?(?:\.w)?\s+{reg},\s+(#\d+|r\d+)", l)
+        if m:
+            return int(m.group(1)[1:]) if m.group(1).startswith("#") else valeur(m.group(1), t0.index(l))
+    return None
+
+
+appels = []
+for k, l in enumerate(t0):
+    if "<timer_channel_output_shadow_config>" in l:
+        args = {}
+        for r in ("r0", "r1", "r2"):
+            args[r] = valeur(r, k)
+        appels.append((args["r1"], args["r2"]))
+print("appels (canal, OCxPE) :", appels)
+ok_ccr = sorted(appels) == [(0, 8), (1, 8), (2, 8), (3, 0)]
+print("CH0-CH2 precharges (0x08), CH3 sans prechargement (0x00) :", "OK" if ok_ccr else "A VERIFIER")
+
 section("Table de vecteurs (debut de ebics.bin) : entrees qui tombent sur Default_Handler")
 names = []
 for l in open("port_f10x/startup_gd32f10x_hd.S", encoding="ascii").read().split("__gVectors:")[1].splitlines():
