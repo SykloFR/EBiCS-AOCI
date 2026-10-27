@@ -333,6 +333,11 @@ volatile int8_t pt_ud[PT_N], pt_uq[PT_N];
 volatile uint8_t pt_ang[PT_N], pt_x[PT_N];
 volatile uint8_t pt_cercle = 0;                   /* runPIcontrol : u_abs > _U_MAX dans le dernier calcul */
 static uint8_t pt_k = 0xFF;                       /* rang ecrit par le trip dans la periode en cours (0xFF : aucun) */
+/* Pepins d'angle aux fronts Hall (27/10/2026, correctif-pepins-angle-attendu-20261027.md) : front arrive (TIMER2 remis a 0
+   par le materiel, CH0IF leve) mais pas encore traite par TIMER2_IRQHandler (meme priorite, IRQ 29 apres l'IRQ 18) :
+   l'angle est tenu une periode au lieu d'etre recalcule depuis l'ancienne frontiere (60 deg de retard). */
+volatile uint16_t pepins_tenus = 0;               /* nombre de periodes tenues (lecture SWD) */
+static uint8_t pt_tenu = 0;                       /* angle tenu dans la periode en cours (bit 6 de pt_x, E20C) */
 #endif
 
 static void suivre_hall(void)
@@ -2004,6 +2009,10 @@ void ADC0_1_IRQHandler(void)
 
     //get the recent timer value from the Hall timer
     ui16_tim2_recent = timer_counter_read(TIMER2);
+#ifdef BENCH_BUILD
+    /* lu APRES le compteur : un front tombe entre les deux ne fait que tenir l'angle une periode (sans danger) */
+    uint8_t front_en_attente = (TIMER_INTF(TIMER2) & TIMER_INTF_CH0IF) ? 1u : 0u;
+#endif
     if (ui16_tim2_recent>SIXSTEPTHRESHOLD<<1){
     	ui16_timertics=SIXSTEPTHRESHOLD<<1;
     	uint32_tics_filtered=ui16_timertics<<3;
@@ -2017,6 +2026,13 @@ void ADC0_1_IRQHandler(void)
     // extrapolate rotorposition from filtered speed reading
     if(MS.hall_angle_detect_flag){//q31_rotorposition_absolute = q31_rotorposition_hall + (q31_t) ((float)(i8_recent_rotor_direction * (deg_30<<1) * ui16_tim2_recent)/(float)(uint32_tics_filtered>>3));//
 //Speed PLL not implemented yet.
+#ifdef BENCH_BUILD
+    	if(front_en_attente){                      /* pepin d'angle : angle de la periode precedente tenu */
+    		if(pepins_tenus < 0xFFFFu) pepins_tenus++;
+    		pt_tenu = 1;
+    	}
+    	else
+#endif
     	if(!ui8_6step_flag){
     	q31_rotorposition_absolute = q31_rotorposition_hall + MP.angle_correction +
     									+ (q31_t) (i8_recent_rotor_direction
@@ -2050,13 +2066,13 @@ void ADC0_1_IRQHandler(void)
 			pt_ang[pt_k] = (uint8_t)((uint32_t)q31_rotorposition_absolute >> 24);
 			pt_ud[pt_k] = CAP_SAT(MS.u_d / 16);
 			pt_uq[pt_k] = CAP_SAT(MS.u_q / 16);
-			pt_x[pt_k] |= (uint8_t)(0x20u | (pt_cercle ? 0x10u : 0u));
+			pt_x[pt_k] |= (uint8_t)(0x20u | (pt_cercle ? 0x10u : 0u) | (pt_tenu ? 0x40u : 0u));
 		}
 #endif
 
     }
 #ifdef BENCH_BUILD
-    pt_k = 0xFF;
+    pt_k = 0xFF; pt_tenu = 0;
 #endif
     __enable_irq();
 

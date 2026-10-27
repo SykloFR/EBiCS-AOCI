@@ -103,11 +103,12 @@ F4 = {0: "appliquee", 1: "refus masque", 2: "refus saturation", 3: "refus mode c
 if avant_trip:
     with open(PREFIXE + "_avant_trip.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        w.writerow(["rang", "ph1", "ph2", "ph3", "f4", "six_step", "ud", "uq", "angle_deg", "hall", "cercle", "foc"])
+        w.writerow(["rang", "ph1", "ph2", "ph3", "f4", "six_step", "ud", "uq", "angle_deg", "hall", "cercle", "foc",
+                    "tenu"])
         for v in avant_trip:
             u = enrichie.get(v["rang"], {})
             w.writerow([v["rang"], *v["ph"], "non evaluee" if v["f4_non_evaluee"] else F4[v["f4"]], v["six_step"]]
-                       + [u.get(k, "") for k in ("ud", "uq", "angle_deg", "hall", "cercle", "foc")])
+                       + [u.get(k, "") for k in ("ud", "uq", "angle_deg", "hall", "cercle", "foc", "tenu")])
     n = len(avant_trip)
     crete = max(max(abs(x) for x in v["ph"]) for v in avant_trip)
     refus = {F4[k]: sum(1 for v in avant_trip if not v["f4_non_evaluee"] and v["f4"] == k) for k in (1, 2, 3)}
@@ -160,6 +161,10 @@ if avant_trip and enrichie:
     print(f"capture enrichie : {len(lig)} periodes FOC, pas d'angle median {med:+.1f} deg/periode, "
           f"cercle {cercle:.0%}, u_d crete a crete {cc('ud'):.0%} de u_abs, u_q {cc('uq'):.0%}")
     print("sauts d'angle aux fronts Hall (front : saut - pas median, deg) :", sauts)
+    n_tenu = sum(1 for _, u in lig if u.get("tenu"))
+    pepins = [s for s in sauts if s[2] >= 20]
+    print(f"correctif des pepins (correctif-pepins-angle-attendu-20261027.md) : {n_tenu} periodes tenues, "
+          f"{len(pepins)} saut(s) >= +20 deg aux fronts -> {'CONFORME' if not pepins else 'NON CONFORME'}")
     grands = [s for s in sauts if abs(s[2]) >= 8]
     meme_signe = grands and (all(s[2] > 0 for s in grands) or all(s[2] < 0 for s in grands))
     print("lecture (criteres ecrits avant) : " + (

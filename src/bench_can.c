@@ -34,7 +34,8 @@
  *               ph2, ph3 (i8, pts, saturees a +-127), etat (u8 : b0-1 resultat F4, b2 F4 non evaluee, b3 6-step),
  *               numero de capture (u8), drapeaux (u8 : b0 figee, b1 pleine = PT_N periodes)
  *   E20C 50 Hz  capture enrichie, meme rang que E20B : rang r (u8, 0xFF = vide), u_d / 16 (i8), u_q / 16 (i8), angle
- *               applique (u8, 360/256 deg), octet (b0-2 etat Hall, b4 limitation en cercle, b5 FOC calculee),
+ *               applique (u8, 360/256 deg), octet (b0-2 etat Hall, b4 limitation en cercle, b5 FOC calculee,
+ *               b6 angle tenu : front Hall en attente, pepin evite),
  *               numero de capture (u8), drapeaux (u8 : b0 figee, b1 pleine)
  *   E206  sur commande : opcode (u8), cmd_seq (u8), statut (u8 : 0 accepté, 1 refusé sans heartbeat depuis 500 ms,
  *               2 refusé défaut verrouillé, 3 refusé frein ou demande d'assistance, 4 commande invalide,
