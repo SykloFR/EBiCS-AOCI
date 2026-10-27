@@ -40,6 +40,9 @@ OF SUCH DAMAGE.
 #include "safety.h"
 #include "bench_can.h"
 #include "foc_int.h"
+#ifdef BENCH_BUILD
+#include "f4_mode_commun.h"
+#endif
 /* variables partagees avec les interruptions / le DMA : volatile obligatoire en -Os (EBiCS est compile en -O0,
    sans quoi while(!reg_ADC_flag); devient une boucle infinie et tout le code apres est supprime) */
 volatile uint16_t adc_value[9];
@@ -294,6 +297,11 @@ volatile uint8_t offset_cal_pont = 0;             /* vrai pendant la mesure pont
 /* PORTE 4, correctif F2 : variante lue au demarrage et seuils en points a son echelle */
 volatile uint8_t bench_variante = 0;
 uint8_t bench_ph_max = PH_CURRENT_MAX, bench_walk_max = BENCH_WALK_ILIM_MAX;
+/* PORTE 4, correctif F4 (voir inc/f4_mode_commun.h) : voies lisibles pour la PROCHAINE conversion injectee, tenu par le code
+   qui place le declenchement CC4 (dyn_adc_state, offset_cal_pont_50) ; au reset CC4 = TRIGGER_DEFAULT, trois voies lisibles.
+   f4_refus : nombre de periodes ou F4 a ete refusee, par raison (indice f4_resultat_t, sature a 0xFFFF), lecture SWD. */
+volatile uint8_t f4_masque = F4_MASQUE_TOUTES;
+volatile uint16_t f4_refus[4] = {0, 0, 0, 0};
 /* PORTE 4, diagnostic du demarrage du pont et correctif candidat F3 (26/10/2026 : defaut 3 des le palier u_d 0 sur le velo,
    zeros pourtant identiques a 1 pt pres) : capture des CAP_N premieres periodes PWM apres chaque MOE = 1 (courants apres
    offset, avant reconstruction, satures a +-127 pts), envoyee par CAN (E208, E209). Precharge F3 : avant le decoupage, les
@@ -383,6 +391,7 @@ static uint8_t offset_cal_pont_50(int32_t p[3])
     timer_channel_output_pulse_value_config(TIMER0, TIMER_CH_1, _T >> 1);
     timer_channel_output_pulse_value_config(TIMER0, TIMER_CH_2, _T >> 1);
     timer_channel_output_pulse_value_config(TIMER0, TIMER_CH_3, TRIGGER_DEFAULT);
+    f4_masque = F4_MASQUE_TOUTES;                       /* F4 : declenchement par defaut, trois voies lisibles */
     TIMER_CHCTL2(TIMER0) = CHCTL2_RUN;
     offset_cal_pont = 1;
     __disable_irq();
@@ -1891,11 +1900,21 @@ void ADC0_1_IRQHandler(void)
        et declenchait le trip a vide ; il faussait aussi i_d / i_q. On retire la moyenne des trois voies. Valable seulement
        si les trois lectures sont justes : en build de banc, CCR <= ~1738 < DYNAMIC_ADC_THRESHOLD (_U_MAX = U_MAX_BENCH,
        u_d de l'outil <= BENCH_OL_UD_MAX), le declenchement reste a TRIGGER_DEFAULT, bras bas fermes pour les trois. Hors
-       calibration (valeurs brutes). La capture ci-dessus garde les valeurs avant correction. */
+       calibration (valeurs brutes). La capture ci-dessus garde les valeurs avant correction.
+       F4 gardee (inc/f4_mode_commun.h) : refusee si une voie est illisible (f4_masque, critere CCR > DYNAMIC_ADC_THRESHOLD
+       d'EBiCS), si une valeur brute est en butee, ou si le mode commun depasse F4_MC_MAX ; les courants restent alors
+       intacts et le trip voit la lecture (f4_entrees_trip, plus bas). Brut = registre injecte (CURRENT_SIGN x courant)
+       + offset injecte (ADC_IOFF0). f4_mes : les trois voies apres F4, avant la reconstruction d'EBiCS. */
+    uint8_t f4_m = 0;
     if(!offset_cal_active){
-    	int16_t mc = (int16_t)((i16_ph1_current + i16_ph2_current + i16_ph3_current) / 3);
-    	i16_ph1_current -= mc; i16_ph2_current -= mc; i16_ph3_current -= mc;
+    	f4_m = f4_masque;
+    	int32_t b1 = CURRENT_SIGN * i16_ph1_current + (int32_t)(ADC_IOFF0(ADC2) & ADC_IOFFX_IOFF);
+    	int32_t b2 = CURRENT_SIGN * i16_ph2_current + (int32_t)(ADC_IOFF0(ADC1) & ADC_IOFFX_IOFF);
+    	int32_t b3 = CURRENT_SIGN * i16_ph3_current + (int32_t)(ADC_IOFF0(ADC0) & ADC_IOFFX_IOFF);
+    	f4_resultat_t r = f4_mode_commun(&i16_ph1_current, &i16_ph2_current, &i16_ph3_current, b1, b2, b3, f4_m);
+    	if(r != F4_APPLIQUEE && f4_refus[r] < 0xFFFFu) f4_refus[r]++;
     }
+    const int16_t f4_mes[3] = {i16_ph1_current, i16_ph2_current, i16_ph3_current};
 #endif
 
 
@@ -1939,8 +1958,16 @@ void ADC0_1_IRQHandler(void)
        PORTE 4 (26/10/2026) : mesure par Rds(on) des MOSFET bas, valable seulement quand le pont commute (echantillon au sommet,
        bras bas fermes). MOE = 0 : noeuds de phase flottants, la valeur lue n'est pas un courant (-870 points le 26/10, defaut 3
        verrouille a chaque demarrage) et aucun courant ne peut passer par le pont. Calibration : offset injecte a 0. */
-    if((TIMER_CCHP(TIMER0) & TIMER_CCHP_POEN) && !offset_cal_active)
+    if((TIMER_CCHP(TIMER0) & TIMER_CCHP_POEN) && !offset_cal_active){
+#ifdef BENCH_BUILD
+    	/* F4 : trois voies lisibles -> par phase, la plus grande de la reconstruction et de la mesure (f4_mode_commun.h) */
+    	int16_t f4_t[3];
+    	f4_entrees_trip(f4_t, i16_ph1_current, i16_ph2_current, f4_mes, f4_m);
+    	safety_check_phase_currents(f4_t[0], f4_t[1], f4_t[2]);
+#else
     	safety_check_phase_currents(i16_ph1_current, i16_ph2_current, (int16_t)(-(i16_ph1_current + i16_ph2_current)));
+#endif
+    }
     /* garde : quel que soit le chemin qui aurait remis POEN a 1, un defaut verrouille recoupe dans la periode */
     if(safety_is_latched()) safety_pwm_off();
 
@@ -2079,18 +2106,27 @@ void dyn_adc_state(q31_t angle){
 		MS.char_dyn_adc_state = 1; // -90Ã‚Â° .. +30Ã‚Â°: Phase C at high dutycycles
 		if(switchtime[2]>DYNAMIC_ADC_THRESHOLD)timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_3,(switchtime[2]-TRIGGER_OFFSET_ADC));
 		else timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_3,TRIGGER_DEFAULT);
+#ifdef BENCH_BUILD
+		f4_masque = (switchtime[2]>DYNAMIC_ADC_THRESHOLD) ? 0x03u : F4_MASQUE_TOUTES;   /* F4 : ph3 illisible si deplace */
+#endif
 	}
 
 	if (switchtime[0]>switchtime[1] && switchtime[0]>switchtime[2]) {
 		MS.char_dyn_adc_state = 2; // +30Ã‚Â° .. 150Ã‚Â° Phase A at high dutycycles
 		if(switchtime[0]>DYNAMIC_ADC_THRESHOLD)timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_3,(switchtime[0]-TRIGGER_OFFSET_ADC));
 		else timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_3,TRIGGER_DEFAULT);
+#ifdef BENCH_BUILD
+		f4_masque = (switchtime[0]>DYNAMIC_ADC_THRESHOLD) ? 0x06u : F4_MASQUE_TOUTES;   /* F4 : ph1 illisible si deplace */
+#endif
 	}
 
 	if (switchtime[1]>switchtime[0] && switchtime[1]>switchtime[2]){
 		MS.char_dyn_adc_state = 3; // +150 .. -90Ã‚Â° Phase B at high dutycycles
 		if(switchtime[1]>DYNAMIC_ADC_THRESHOLD)timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_3,(switchtime[1]-TRIGGER_OFFSET_ADC));
 		else timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_3,TRIGGER_DEFAULT);
+#ifdef BENCH_BUILD
+		f4_masque = (switchtime[1]>DYNAMIC_ADC_THRESHOLD) ? 0x05u : F4_MASQUE_TOUTES;   /* F4 : ph2 illisible si deplace */
+#endif
 	}
 }
 
