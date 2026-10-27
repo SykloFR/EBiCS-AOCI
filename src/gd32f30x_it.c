@@ -142,12 +142,18 @@ void PendSV_Handler(void)
     \param[out] none
     \retval     none
 */
+#ifdef ROUTE_BUILD
+void route_freq_ms(void);                        /* main.c : frequence reelle de reg_ADC_processing (E212) */
+#endif
 void SysTick_Handler(void)
 {
     //led_spark();
     delay_decrement();
 #ifdef BENCH_BUILD
     bench_ms++;                                  /* horloge de la télémétrie CAN de banc (bench_can.c) */
+#endif
+#ifdef ROUTE_BUILD
+    route_freq_ms();
 #endif
 }
 

@@ -276,10 +276,21 @@ if ROUTE:
     lecteurs_j = fonctions_lisant("pd2_journal")
     print(f"journal des periodes PD2 (E210) : ecrit par {nom_ra}, lu par {lecteurs_j} :",
           "OK" if lit_adresse(ra, "pd2_journal") and "bench_can_poll" in lecteurs_j else "A VERIFIER")
+    print("frequence reg_ADC (27/10) : TIMER1_IRQHandler compte freq_n_isr, reg_ADC_processing freq_n_trait, main freq_n_boucle :",
+          "OK" if "TIMER1_IRQHandler" in fonctions_lisant("freq_n_isr") and nom_ra in fonctions_lisant("freq_n_trait")
+          and "main" in fonctions_lisant("freq_n_boucle") else "A VERIFIER")
+    a_st, t_st = syms["SysTick_Handler"][0], syms["SysTick_Handler"][1]
+    st = run("arm-none-eabi-objdump", "-d", "--no-show-raw-insn", f"--start-address={a_st:#x}",
+             f"--stop-address={a_st + t_st:#x}", ELF)
+    print(f"frequence reg_ADC : SysTick_Handler fige les fenetres (route_freq_ms ou freq_diag) ; E212 lue par {fonctions_lisant('freq_diag')} :",
+          "OK" if ("route_freq_ms" in st or lit_adresse(st, "freq_diag")) and "bench_can_poll" in fonctions_lisant("freq_diag")
+          else "A VERIFIER")
     lecteurs = fonctions_lisant("pedalier_exti12")
     print(f"pedalier : trame E20F, compteurs lus hors interruption par {lecteurs} :",
           "OK" if any(f != "EXTI10_15_IRQHandler" for f in lecteurs) and fonctions_lisant("pedalier_diag") else "A VERIFIER")
 else:
+    print("banc : pas de mesure de frequence (freq_diag, freq_n_isr, route_freq_ms absents) :",
+          "OK" if not any(x in syms for x in ("freq_diag", "freq_n_isr", "route_freq_ms")) else "A VERIFIER")
     print("banc : pas de diagnostic du pedalier (pedalier_diag, pedalier_exti12, pd2_journal absents) :",
           "OK" if not any(x in syms for x in ("pedalier_diag", "pedalier_exti12", "pd2_journal")) else "A VERIFIER")
     a_ex, t_ex = syms["EXTI10_15_IRQHandler"][0], syms["EXTI10_15_IRQHandler"][1]

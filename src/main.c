@@ -49,6 +49,7 @@ OF SUCH DAMAGE.
 #include "pedalier_diag.h"
 #include "pedalier_pd2.h"
 #include "couple_zero.h"
+#include "freq_diag.h"
 #endif
 #endif
 /* variables partagees avec les interruptions / le DMA : volatile obligatoire en -Os (EBiCS est compile en -O0,
@@ -324,6 +325,13 @@ pedalier_diag_t pedalier_diag = {0, 0, 0, 0};
 pd2_antirebond_t pd2_ar = {0, 0, 0};              /* cadence sur PD2 (27/10, inc/pedalier_pd2.h) */
 pd2_journal_t pd2_journal;                        /* journal des 64 dernieres periodes de PD2 (diagnostic, E210) */
 couple_zero_t couple_zero = COUPLE_ZERO_INIT;     /* zero de couple adaptatif (27/10, inc/couple_zero.h, E211) */
+/* frequence reelle de reg_ADC_processing (diagnostic du 27/10, inc/freq_diag.h, E212) : compteurs libres */
+volatile uint32_t freq_n_isr = 0, freq_n_trait = 0, freq_n_boucle = 0;
+freq_diag_t freq_diag;
+void route_freq_ms(void)                          /* SysTick, 1 kHz */
+{
+	freq_diag_ms(&freq_diag, freq_n_isr, freq_n_trait, freq_n_boucle, ui_8_PWM_ON_Flag);
+}
 volatile uint16_t pedalier_exti12 = 0;
 #endif
 uint8_t bench_ph_max = PH_CURRENT_MAX, bench_walk_max = BENCH_WALK_ILIM_MAX;
@@ -768,6 +776,9 @@ int main(void)
 
     while (1){
     	fwdgt_counter_reload();
+#ifdef ROUTE_BUILD
+    	freq_n_boucle++;                         /* tours de boucle (E212) */
+#endif
 #ifdef BENCH_BUILD
     	bench_can_poll();                        /* une trame de télémétrie au plus par tour, jamais bloquant */
 #endif
@@ -1484,6 +1495,9 @@ void TIMER1_IRQHandler(void) // regular ADC processing and common slow timing ta
         timer_interrupt_flag_clear(TIMER1,TIMER_INT_FLAG_UP);
 
         reg_ADC_flag=1;
+#ifdef ROUTE_BUILD
+        freq_n_isr++;                            /* debordements de TIMER1 (E212) */
+#endif
 //        pulse_counter++;
 //        if(pulse_counter>1000)gpio_bit_set(GPIOB,GPIO_PIN_8);
 //        else gpio_bit_reset(GPIOB,GPIO_PIN_8);
@@ -1732,6 +1746,9 @@ void Speed_processing(void)
 
 void reg_ADC_processing(void)
 {
+#ifdef ROUTE_BUILD
+	freq_n_trait++;                                 /* appels reels (E212) */
+#endif
 #ifdef BENCH_BUILD
 	if(bench_ol_keepalive) bench_ol_keepalive--;   /* 4 kHz : 8000 = 2 s sans rafraichissement SWD avant arret de l'outil */
 	bench_can_sample(i16_ph1_current, i16_ph2_current, i16_ph3_current);   /* courants efficaces de la trame E100 */

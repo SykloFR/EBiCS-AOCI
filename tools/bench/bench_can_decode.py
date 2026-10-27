@@ -10,7 +10,7 @@ import can
 PERIODE = {0xE000: 20, 0xE001: 20, 0xE002: 50, 0xE100: 50, 0xE101: 50, 0xE102: 50, 0xE103: 50,
            0xE200: 100, 0xE201: 100, 0xE202: 100, 0xE203: 1000, 0xE204: 1000, 0xE205: 1000, 0xE207: 1000,
            0xE208: 20, 0xE209: 1000, 0xE20A: 20, 0xE20B: 20, 0xE20C: 20, 0xE20D: 20, 0xE20E: 1000,
-           0xE20F: 100, 0xE210: 20, 0xE211: 100}
+           0xE20F: 100, 0xE210: 20, 0xE211: 100, 0xE212: 1000}
 
 
 def decode(cle, d):
@@ -75,6 +75,8 @@ def decode(cle, d):
         return dict(pc12=d[1] & 1, pd2=d[1] >> 1 & 1, fronts_pc12=u16(2), fronts_pd2=u16(4), exti12=u16(6))
     if cle == 0xE210:
         return dict(rang=u8(1), periode=u16(2), haut=u16(4), n=u8(6), seq=u8(7))
+    if cle == 0xE212:
+        return dict(timer1_hz=u16(1), regadc_hz=u16(3), boucle_hz=u16(5), pwm_pct=round(u8(7) * 0.4, 1))
     if cle == 0xE211:
         return dict(zero_mV=u16(1), dernier_mV=u16(3), n=u8(5))
     if cle == 0xE209:
