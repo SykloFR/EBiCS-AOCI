@@ -172,12 +172,24 @@ q31_t q31_u_q_temp=0;
    Sans ce fichier, les angles restent ceux du M820 et le walk assist par CAN est refuse (statut 6). */
 #include "bench_hall_angles.h"
 int32_t i32_hall_order = BENCH_HALL_ORDER;
+#if __has_include("bench_hall_rotation.h")
+/* Porte 4, 27/10/2026 (correctif-table-hall-rotation-attendu-20261027.md) : frontieres du sens de marche tirees de la
+   rotation (positions relatives) avec le meme ancrage moyen que A5 ; le releve statique A5 les place 2 a 5 deg a cote. */
+#include "bench_hall_rotation.h"
+int32_t Hall_13 = BENCH_HALL_ROT_13;
+int32_t Hall_32 = BENCH_HALL_ROT_32;
+int32_t Hall_26 = BENCH_HALL_ROT_26;
+int32_t Hall_64 = BENCH_HALL_ROT_64;
+int32_t Hall_45 = BENCH_HALL_ROT_45;
+int32_t Hall_51 = BENCH_HALL_ROT_51;
+#else
 int32_t Hall_13 = BENCH_HALL_13;
 int32_t Hall_32 = BENCH_HALL_32;
 int32_t Hall_26 = BENCH_HALL_26;
 int32_t Hall_64 = BENCH_HALL_64;
 int32_t Hall_45 = BENCH_HALL_45;
 int32_t Hall_51 = BENCH_HALL_51;
+#endif
 #else
 int32_t i32_hall_order =-1;
 int32_t Hall_13 = 1825361405;

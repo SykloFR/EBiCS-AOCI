@@ -157,8 +157,12 @@ t2_complet = run("arm-none-eabi-objdump", "-d", "--no-show-raw-insn", f"--start-
                  f"--stop-address={a_t2 + t_t2:#x}", ELF)
 print("largeur du secteur (27/10) : TIMER2_IRQHandler ecrit secteur_q16, ADC0_1_IRQHandler le lit :",
       "OK" if lit_adresse(t2_complet, "secteur_q16") and lit_adresse(isr_complet, "secteur_q16") else "A VERIFIER")
-h = open("inc/bench_hall_angles.h", encoding="utf-8").read()
-hv = {k: int(x) & 0xFFFFFFFF for k, x in re.findall(r"BENCH_HALL_(\d\d) \((-?\d+)\)", h)}
+if os.path.exists("inc/bench_hall_rotation.h"):           # table en rotation prioritaire (main.c)
+    hv = {k: int(x) & 0xFFFFFFFF for k, x in re.findall(r"BENCH_HALL_ROT_(\d\d) \((-?\d+)\)",
+                                                         open("inc/bench_hall_rotation.h", encoding="ascii").read())}
+else:
+    hv = {k: int(x) & 0xFFFFFFFF for k, x in re.findall(r"BENCH_HALL_(\d\d) \((-?\d+)\)",
+                                                         open("inc/bench_hall_angles.h", encoding="utf-8").read())}
 larg = {e: ((hv[a] - hv[b]) & 0xFFFFFFFF) >> 16 for e, (a, b) in
         {4: ("45", "64"), 5: ("51", "45"), 1: ("13", "51"), 3: ("32", "13"), 2: ("26", "32"), 6: ("64", "26")}.items()}
 print("   largeurs attendues (etat : q16 / deg) :", {e: (q, round(q * 360 / 65536, 1)) for e, q in larg.items()},
@@ -194,6 +198,28 @@ for k, l in enumerate(t0):
 print("appels (canal, OCxPE) :", appels)
 ok_ccr = sorted(appels) == [(0, 8), (1, 8), (2, 8), (3, 0)]
 print("CH0-CH2 precharges (0x08), CH3 sans prechargement (0x00) :", "OK" if ok_ccr else "A VERIFIER")
+
+section("Table Hall du sens de marche (27/10/2026) : valeurs initiales de Hall_xy dans .data")
+dump = run("arm-none-eabi-objdump", "-s", "-j", ".data", ELF)
+octets = {}
+for l in dump.splitlines():
+    m = re.match(r"^\s*([0-9a-f]{8})\s+((?:[0-9a-f]{2,8}\s){1,4})", l)
+    if m:
+        base = int(m.group(1), 16)
+        hexa = "".join(m.group(2).split())
+        for i in range(0, len(hexa), 2):
+            octets[base + i // 2] = int(hexa[i:i + 2], 16)
+rot_h = "inc/bench_hall_rotation.h"
+attendu = {}
+if os.path.exists(rot_h):
+    attendu = {k: int(v) for k, v in re.findall(r"BENCH_HALL_ROT_(\d\d) \((-?\d+)\)", open(rot_h, encoding="ascii").read())}
+ok_t = bool(attendu)
+for k in ("13", "32", "26", "64", "45", "51"):
+    a = syms.get(f"Hall_{k}", (None,))[0]
+    v = int.from_bytes(bytes(octets.get(a + i, 0) for i in range(4)), "little", signed=True) if a else None
+    ok_t &= v is not None and v == attendu.get(k)
+    print(f"   Hall_{k} = {v} ({(v % 2**32) * 360 / 2**32:.1f} deg) ; en-tete rotation : {attendu.get(k)}")
+print("valeurs initiales = bench_hall_rotation.h :", "OK" if ok_t else "A VERIFIER (en-tete absent ou valeurs differentes)")
 
 section("Table de vecteurs (debut de ebics.bin) : entrees qui tombent sur Default_Handler")
 names = []

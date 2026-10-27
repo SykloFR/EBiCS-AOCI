@@ -15,6 +15,9 @@ cfg, main_c, ang = lire("inc/config.h"), lire("src/main.c"), lire("inc/bench_hal
 m = re.search(r"#ifdef BENCH_BUILD\s*(?:/\*.*?\*/\s*)?#define REVERSE\s+(-?\d+)", cfg, re.S)
 rev_banc = int(m.group(1)) if m else int(re.search(r"#define REVERSE\s+(-?\d+)", cfg).group(1))
 deg = {f"Hall_{k}": int(v) * 360 / 2**32 % 360 for k, v in re.findall(r"#define BENCH_HALL_(\d\d)\s+\((-?\d+)\)", ang)}
+if os.path.exists(os.path.join(R, "inc/bench_hall_rotation.h")):   # table en rotation prioritaire (main.c)
+    deg = {f"Hall_{k}": int(v) * 360 / 2**32 % 360 for k, v in
+           re.findall(r"#define BENCH_HALL_ROT_(\d\d)\s+\((-?\d+)\)", lire("inc/bench_hall_rotation.h"))}
 f = main_c[main_c.index("void get_standstill_position(){"):]
 f = f[:f.index("\n}\n")]
 banc = re.search(r"if \(MP\.reverse > 0\) \{(.*?)return;", f, re.S)
