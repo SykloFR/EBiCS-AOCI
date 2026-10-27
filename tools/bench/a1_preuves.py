@@ -269,14 +269,34 @@ if ROUTE:
     a_ex, t_ex = syms["EXTI10_15_IRQHandler"][0], syms["EXTI10_15_IRQHandler"][1]
     ex = run("arm-none-eabi-objdump", "-d", "--no-show-raw-insn", f"--start-address={a_ex:#x}",
              f"--stop-address={a_ex + t_ex:#x}", ELF)
-    print("pedalier : EXTI10_15_IRQHandler compte pedalier_exti12 (et leve toujours PAS_flag) :",
-          "OK" if lit_adresse(ex, "pedalier_exti12") and lit_adresse(ex, "PAS_flag") else "A VERIFIER")
+    print("pedalier : EXTI10_15_IRQHandler compte pedalier_exti12 et ne leve plus PAS_flag (cadence sur PD2) :",
+          "OK" if lit_adresse(ex, "pedalier_exti12") and not lit_adresse(ex, "PAS_flag") else "A VERIFIER")
+    print(f"cadence PD2 (27/10) : {nom_ra} ecrit pd2_ar et PAS_flag :",
+          "OK" if lit_adresse(ra, "pd2_ar") and lit_adresse(ra, "PAS_flag") else "A VERIFIER")
     lecteurs = fonctions_lisant("pedalier_exti12")
     print(f"pedalier : trame E20F, compteurs lus hors interruption par {lecteurs} :",
           "OK" if any(f != "EXTI10_15_IRQHandler" for f in lecteurs) and fonctions_lisant("pedalier_diag") else "A VERIFIER")
 else:
     print("banc : pas de diagnostic du pedalier (pedalier_diag, pedalier_exti12 absents) :",
           "OK" if "pedalier_diag" not in syms and "pedalier_exti12" not in syms else "A VERIFIER")
+    a_ex, t_ex = syms["EXTI10_15_IRQHandler"][0], syms["EXTI10_15_IRQHandler"][1]
+    ex = run("arm-none-eabi-objdump", "-d", "--no-show-raw-insn", f"--start-address={a_ex:#x}",
+             f"--stop-address={a_ex + t_ex:#x}", ELF)
+    print("banc : EXTI10_15_IRQHandler leve PAS_flag (PC12, inchange) :", "OK" if lit_adresse(ex, "PAS_flag") else "A VERIFIER")
+if "PAS_processing" in syms:
+    a_pp, t_pp = syms["PAS_processing"][0], syms["PAS_processing"][1]
+    pp = run("arm-none-eabi-objdump", "-d", "--no-show-raw-insn", f"--start-address={a_pp:#x}",
+             f"--stop-address={a_pp + t_pp:#x}", ELF)
+    if ROUTE:
+        print("cadence PD2 : PAS_processing seuil 20 ticks, 5000 / periode, sans lecture de sens (gpio_input_bit_get) :",
+              "OK" if re.search(r"cmp\s+r\d+, #20\b", pp) and "#5000" in pp and "gpio_input_bit_get" not in pp
+              else "A VERIFIER")
+    else:
+        print("banc : PAS_processing d'origine (seuil 70, 10000 / periode, sens lu sur PD2) :",
+              "OK" if re.search(r"cmp\s+r\d+, #70\b", pp) and "#10000" in pp and "gpio_input_bit_get" in pp
+              else "A VERIFIER")
+else:
+    print("PAS_processing absent (inline) : A VERIFIER")
 print("regle F4 des entrees du trip : prouvee par le test hote tools/test_f4_mode_commun.c (en-tete reel)")
 
 section("Table de vecteurs (debut de ebics.bin) : entrees qui tombent sur Default_Handler")

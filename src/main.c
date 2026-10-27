@@ -47,6 +47,7 @@ OF SUCH DAMAGE.
 #include "variante.h"
 #ifdef ROUTE_BUILD
 #include "pedalier_diag.h"
+#include "pedalier_pd2.h"
 #endif
 #endif
 /* variables partagees avec les interruptions / le DMA : volatile obligatoire en -Os (EBiCS est compile en -O0,
@@ -319,6 +320,7 @@ volatile uint8_t variante_repli = 0;              /* 1 : octet vierge, variante 
 /* diagnostic du pedalier (27/10, inc/pedalier_diag.h, trame E20F) : fronts de PC12 et PD2 a 4 kHz (reg_ADC_processing,
    boucle principale comme l'envoi) et interruptions EXTI12 vues par EBiCS. Aucune action sur la commande. */
 pedalier_diag_t pedalier_diag = {0, 0, 0, 0};
+pd2_antirebond_t pd2_ar = {0, 0, 0};              /* cadence sur PD2 (27/10, inc/pedalier_pd2.h) */
 volatile uint16_t pedalier_exti12 = 0;
 #endif
 uint8_t bench_ph_max = PH_CURRENT_MAX, bench_walk_max = BENCH_WALK_ILIM_MAX;
@@ -1650,9 +1652,10 @@ void TIMER2_IRQHandler(void)
 void EXTI10_15_IRQHandler(void)
 {
     if(RESET != exti_interrupt_flag_get(EXTI_12)) {
-    	PAS_flag = 1;
 #ifdef ROUTE_BUILD
-    	pedalier_exti12++;                       /* diagnostic du pedalier (E20F) */
+    	pedalier_exti12++;                       /* diagnostic du pedalier (E20F) ; en route la cadence vient de PD2 */
+#else
+    	PAS_flag = 1;
 #endif
         exti_interrupt_flag_clear(EXTI_12);
     }
@@ -1668,13 +1671,24 @@ void EXTI2_IRQHandler(void)
 
 void PAS_processing(void)
 {
+#ifdef ROUTE_BUILD
+	if(PAS_counter>PD2_PERIODE_MIN){
+		MS.cadence=pd2_cadence(PAS_counter);   /* 48 impulsions par tour sur PD2 (27/10) */
+#else
 	if(PAS_counter>70){
 		MS.cadence=10000/PAS_counter;//24 Pulses per crank revolution, 4000 Hz Timer interrupt frequency (for M560 about 48 pulses on speed/direction pin)(4000*60/24)=10000
+#endif
 		uint16_cadence_filtered-=uint16_cadence_filtered>>3;
 		uint16_cadence_filtered+=MS.cadence;
 
 
 		PAS_flag = 0;
+#ifdef ROUTE_BUILD
+		/* PD2 porte les impulsions, sans 2e voie : pas de sens, chaque impulsion compte vers l'avant (pedalage arriere
+		   neutralise, risque ecrit dans correctif-cadence-pd2-attendu-20261027.md) */
+		if(Backwards_counter)Backwards_counter--;
+		PAS_counter=0;
+#else
 		if(gpio_input_bit_get(GPIOD,GPIO_PIN_2)){
 			if(Backwards_counter<10)Backwards_counter++;
 
@@ -1683,6 +1697,7 @@ void PAS_processing(void)
 			if(Backwards_counter)Backwards_counter--;
 			PAS_counter=0;
 		}
+#endif
 		torque_cumulated-=torque_cumulated>>MS.TQfilter;
 		if(MS.torque_on_crank>750){
 			torque_cumulated+=(MS.torque_on_crank-750);
@@ -1713,8 +1728,11 @@ void reg_ADC_processing(void)
 #endif
 	suivre_hall();                                  /* garde de calibration : Hall stable 50 ms */
 #ifdef ROUTE_BUILD
-	pedalier_echantillon(&pedalier_diag, (uint8_t)((GPIO_ISTAT(GPIOC) >> 12) & 1u),   /* PC12, PD2 : trame E20F */
-	                     (uint8_t)((GPIO_ISTAT(GPIOD) >> 2) & 1u));
+	{
+		uint8_t pd2 = (uint8_t)((GPIO_ISTAT(GPIOD) >> 2) & 1u);
+		pedalier_echantillon(&pedalier_diag, (uint8_t)((GPIO_ISTAT(GPIOC) >> 12) & 1u), pd2);   /* PC12, PD2 : trame E20F */
+		if(pd2_echantillon(&pd2_ar, pd2)) PAS_flag = 1;   /* cadence sur PD2 : front descendant tenu 2 ms (27/10) */
+	}
 #endif
 	battery_current_cumulated-=battery_current_cumulated>>6;
 	battery_current_cumulated+= (adc_value[0]-bat_current_offset);   /* REVUE-PUISSANCE P8 : offset mesure au demarrage */
