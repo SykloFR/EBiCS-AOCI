@@ -96,7 +96,7 @@ extern volatile int16_t offset_cal_ph[3];
 extern volatile uint8_t offsets_valides;
 extern volatile uint16_t hall_stable_ticks;
 extern volatile int16_t offset_pont_ph[3];
-extern volatile uint8_t bench_variante;
+extern volatile uint8_t bench_variante, variante_repli;
 extern uint8_t bench_ph_max, bench_walk_max;
 extern volatile int8_t cap_ph[3][CAP_N];
 extern volatile uint8_t cap_n, cap_trip, cap_seq, bench_precharge_ms;
@@ -380,7 +380,8 @@ static uint8_t remplir(const bench_trame_t* t, uint8_t* d)
 #else
         d[7] = 0u;
 #endif
-        d[7] |= (TEMP_SENSOR_REQUIRED ? 2u : 0u) | (CURRENT_SIGN < 0 ? 4u : 0u) | (BENCH_GIT_DIRTY ? 8u : 0u);
+        d[7] |= (TEMP_SENSOR_REQUIRED ? 2u : 0u) | (CURRENT_SIGN < 0 ? 4u : 0u) | (BENCH_GIT_DIRTY ? 8u : 0u)
+              | (variante_repli ? 0x10u : 0u);
         return 8;
     case 0xE204:
         d[1] = bench_ph_max; d[2] = (uint8_t)safety_ph_trip; d[3] = (uint8_t)MP.phase_current_max; d[4] = (uint8_t)(_U_MAX / 8);

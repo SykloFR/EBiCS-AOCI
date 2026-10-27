@@ -179,6 +179,8 @@
 #undef SPEEDLIMIT
 #define SPEEDLIMIT 1500          // 15 km/h (x100) : plafond tant que la chaine ADC haute modulation n'est pas mesuree
 #define ROUTE_NIVEAU_MAX 2       // MS.assist_level 2 = niveau 1 de l'afficheur 5 niveaux (code 0x0B, CAN_Display.c)
+#define ROUTE_VARIANTE_REPLI 2   // octet 0x0803D800 vierge (0xFF, lu apres le flash route du 27/10) -> variante 2 mesuree
+                                 // sur ce controleur (inc/variante.h) ; signale par le bit 4 de E203
 #endif
 
 /* Signe des courants de phase : EBiCS lit i = JDR - offset ; l'origine AOCI calcule I = offset - 2 x JDR.

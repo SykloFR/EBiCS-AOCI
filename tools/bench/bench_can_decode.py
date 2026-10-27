@@ -43,7 +43,7 @@ def decode(cle, d):
     if cle == 0xE203:
         b = d[7]
         return dict(version=u16(1), git=f"{struct.unpack_from('<I', d, 3)[0]:08x}", no_eeprom=b & 1, temp_req=b >> 1 & 1,
-                    signe_neg=b >> 2 & 1, git_modifie=b >> 3 & 1)
+                    signe_neg=b >> 2 & 1, git_modifie=b >> 3 & 1, repli_variante=d[7] >> 4 & 1)
     if cle == 0xE204:
         return dict(ph_max=u8(1), ph_trip=u8(2), ilim=u8(3), u_max=u8(4) * 8, v_min=u16(5), ol_ud_max=u8(7))
     if cle == 0xE205:

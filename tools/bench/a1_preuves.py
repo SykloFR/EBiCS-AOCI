@@ -225,15 +225,17 @@ for k in ("13", "32", "26", "64", "45", "51"):
 print("valeurs initiales = bench_hall_rotation.h :", "OK" if ok_t else "A VERIFIER (en-tete absent ou valeurs differentes)")
 
 section("Echelle de courant (decision de revue du 27/10/2026)")
-mv = {k: v for k, v in re.findall(r"^#define (PH_CURRENT_TRIP|PH_CURRENT_MAX|BENCH_WALK_ILIM_MAX|BRIDE_ERPS_DEBUT|BRIDE_ERPS_FIN|SPEEDLIMIT|ROUTE_NIVEAU_MAX|BATTERYCURRENT_MAX|VOLTAGE_MIN|REVERSE|CURRENT_SIGN) (\S+)", macros, re.M)}
+mv = {k: v for k, v in re.findall(r"^#define (PH_CURRENT_TRIP|PH_CURRENT_MAX|BENCH_WALK_ILIM_MAX|BRIDE_ERPS_DEBUT|BRIDE_ERPS_FIN|SPEEDLIMIT|ROUTE_NIVEAU_MAX|ROUTE_VARIANTE_REPLI|BATTERYCURRENT_MAX|VOLTAGE_MIN|REVERSE|CURRENT_SIGN) (\S+)", macros, re.M)}
 print("macros :", mv)
 if ROUTE:
     attendu_r = {"PH_CURRENT_TRIP": "377", "PH_CURRENT_MAX": "30", "SPEEDLIMIT": "1500", "ROUTE_NIVEAU_MAX": "2",
-                 "BATTERYCURRENT_MAX": "15000", "VOLTAGE_MIN": "1773", "REVERSE": "1", "CURRENT_SIGN": "1"}
+                 "BATTERYCURRENT_MAX": "15000", "VOLTAGE_MIN": "1773", "REVERSE": "1", "CURRENT_SIGN": "1",
+                 "ROUTE_VARIANTE_REPLI": "2"}
     ecarts = {k: (mv.get(k), v) for k, v in attendu_r.items() if mv.get(k) != v}
     print("seuils route (377 / 30 / 15 km/h / niveau 1 / 15 A / 30 V / REVERSE +1 / CURRENT_SIGN +1) :",
           "OK" if not ecarts else f"A VERIFIER {ecarts}")
 else:
+    print("banc : pas de repli de variante (ROUTE_VARIANTE_REPLI absente) :", "OK" if "ROUTE_VARIANTE_REPLI" not in mv else "A VERIFIER")
     print("seuils de banc 45 / 20 / 15 :", "OK" if (mv.get("PH_CURRENT_TRIP"), mv.get("PH_CURRENT_MAX"), mv.get("BENCH_WALK_ILIM_MAX")) == ("45", "20", "15") else "A VERIFIER")
 nom_us = "update_setpoint" if "update_setpoint" in syms else "main"
 a_us, t_us = syms[nom_us][0], syms[nom_us][1]

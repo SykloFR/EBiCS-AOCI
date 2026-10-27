@@ -44,6 +44,7 @@ OF SUCH DAMAGE.
 #ifdef BENCH_BUILD
 #include "f4_mode_commun.h"
 #include "bench_walk_bride.h"
+#include "variante.h"
 #endif
 /* variables partagees avec les interruptions / le DMA : volatile obligatoire en -Os (EBiCS est compile en -O0,
    sans quoi while(!reg_ADC_flag); devient une boucle infinie et tout le code apres est supprime) */
@@ -310,6 +311,7 @@ volatile int16_t offset_pont_ph[3] = {0, 0, 0};   /* derniere mesure pont a 50 %
 volatile uint8_t offset_cal_pont = 0;             /* vrai pendant la mesure pont a 50 % : garde CAL_PONT_LIM dans l'ISR */
 /* PORTE 4, correctif F2 : variante lue au demarrage et seuils en points a son echelle */
 volatile uint8_t bench_variante = 0;
+volatile uint8_t variante_repli = 0;              /* 1 : octet vierge, variante de repli du build route (E203 b4) */
 uint8_t bench_ph_max = PH_CURRENT_MAX, bench_walk_max = BENCH_WALK_ILIM_MAX;
 /* PORTE 4, correctif F4 (voir inc/f4_mode_commun.h) : voies lisibles pour la PROCHAINE conversion injectee, tenu par le code
    qui place le declenchement CC4 (dyn_adc_state, offset_cal_pont_50) ; au reset CC4 = TRIGGER_DEFAULT, trois voies lisibles.
@@ -479,8 +481,15 @@ static uint8_t variante_init(void)
 {
     uint32_t ech;
     bench_variante = *(volatile const uint8_t *)VARIANTE_ADDR;
-    if (bench_variante == 2) ech = PH_COUNTS_PER_A_X100;
-    else if (bench_variante == 1) ech = PH_COUNTS_PER_A_X100_R35;
+    uint8_t repli = 0;
+#ifdef ROUTE_VARIANTE_REPLI
+    uint8_t v = variante_effective(bench_variante, ROUTE_VARIANTE_REPLI, &repli);
+#else
+    uint8_t v = variante_effective(bench_variante, 0u, &repli);   /* banc : octet vierge = refus */
+#endif
+    variante_repli = repli;
+    if (v == 2) ech = PH_COUNTS_PER_A_X100;
+    else if (v == 1) ech = PH_COUNTS_PER_A_X100_R35;
     else return 0;
     safety_ph_trip = (int16_t)((PH_CURRENT_TRIP * ech) / PH_COUNTS_PER_A_X100);
     bench_ph_max = (uint8_t)((PH_CURRENT_MAX * ech) / PH_COUNTS_PER_A_X100);
