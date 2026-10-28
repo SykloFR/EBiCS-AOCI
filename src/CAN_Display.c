@@ -74,9 +74,11 @@ void processCAN_Rx(MotorParams_t* MP, MotorState_t* MS){
 					rx_data_length=receive_message.rx_data[0];
 				}
 				else if(Ext_ID_Rx.command==0x62D9){ //Startup angle, used as multiplyer here
+#ifndef ROUTE_BUILD  /* route (28/10) : gain de la loi d'assistance fige (la source n'etait pas controlee) */
 					MP->TS_coeff=receive_message.rx_data[0]+(receive_message.rx_data[1]<<8);
 					//save received setting
 					write_virtual_eeprom();
+#endif
 				}
 
 				else sendCAN_Tx(MP,MS);
@@ -133,8 +135,10 @@ void processCAN_Rx(MotorParams_t* MP, MotorState_t* MS){
 					Rx_MF_active=0;
 					rx_data_length=0;
 					//save received setting
+#ifndef ROUTE_BUILD  /* route (28/10) : parametres figes en marche (bride, courant, sens), multitrame recue mais non appliquee */
 					parse_DPparams(MP);
 					write_virtual_eeprom();
+#endif
 
 				}
 				else{
@@ -204,10 +208,12 @@ void processCAN_Rx(MotorParams_t* MP, MotorState_t* MS){
 		}
 
 		if(Ext_ID_Rx.command==0x3203&&Ext_ID_Rx.operation==WRITE_CMD){ //speed limit and wheel size
+#ifndef ROUTE_BUILD  /* route (28/10) : bride et circonference figees, le menu de l'afficheur ne les change pas en marche */
 			MP->speedLimitx100=receive_message.rx_data[0]+(receive_message.rx_data[1]<<8);
 			MP->wheel_cirumference=receive_message.rx_data[4]+(receive_message.rx_data[5]<<8);
 			//save received setting
 			write_virtual_eeprom();
+#endif
 
 		}
 

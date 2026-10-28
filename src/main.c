@@ -839,11 +839,13 @@ int main(void)
         		MS.offroadtics++;
         	}
 
+#ifndef ROUTE_BUILD  /* route (28/10) : pas de mode hors route par sequence de niveaux, il leve la bride */
         	if(offroadcode==MP.MagicNumber){
         		MS.offroadflag=!MS.offroadflag;
         		if(MS.offroadflag)MS.offroadtics=9;
         		else MS.offroadtics=8;
         	}
+#endif
         	offroadcounter=0;
 
     		assist_level_old=MS.assist_level;

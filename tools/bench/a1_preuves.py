@@ -40,6 +40,21 @@ want = r"^#define (BENCH_\w+|PH_CURRENT_MAX|PH_CURRENT_TRIP|PH_TRIP_PERIODS|BATT
 for line in sorted(l for l in macros.splitlines() if re.match(want, l)):
     print(line)
 
+section("Parametres figes en route (28/10) : preprocesseur, memes options")
+pp_can = run("arm-none-eabi-gcc", *cflags, "-E", "-P", "src/CAN_Display.c")
+pp_main = run("arm-none-eabi-gcc", *cflags, "-E", "-P", "src/main.c")
+chemins = {"0x3203 -> speedLimitx100": "speedLimitx100=receive_message" in pp_can,
+           "multitrame -> parse_DPparams": "parse_DPparams(MP)" in pp_can,
+           "0x62D9 -> TS_coeff": "TS_coeff=receive_message" in pp_can,
+           "mode hors route -> offroadflag": "offroadflag=!MS.offroadflag" in pp_main}
+for k, v in chemins.items():
+    print(f"   {k:32s} : {'present' if v else 'absent'}")
+if ROUTE:
+    print("route : les quatre chemins qui changent la bride ou les parametres en marche sont absents :",
+          "OK" if not any(chemins.values()) else "A VERIFIER")
+else:
+    print("banc : les quatre chemins restent presents (banc inchange) :", "OK" if all(chemins.values()) else "A VERIFIER")
+
 section("Symboles du build banc (nm)")
 nm = run("arm-none-eabi-nm", "-S", "--size-sort", ELF)
 syms = {}
