@@ -124,6 +124,23 @@
       <p class="note">À la connexion, la résistance est mise à 0 % automatiquement. Ouvre la page dans Chrome ou Edge
         (Web Bluetooth).</p>
     </section>
+    <section style="margin-top:16px">
+      <h2>Batterie (BMS DPowerCore)</h2>
+      <div class="rang">
+        <button id="btnBms">Connecter le BMS</button>
+        <span class="note" id="bmsEtat"></span>
+      </div>
+      <div class="grille">
+        <div class="tuile"><div class="l">tension (V)</div><div class="v" id="bV">–</div></div>
+        <div class="tuile" id="tbI"><div class="l">courant décharge (A)</div><div class="v" id="bI">–</div></div>
+        <div class="tuile"><div class="l">SOC (%)</div><div class="v" id="bSoc">–</div></div>
+        <div class="tuile" id="tbTmax"><div class="l">T max cellules (°C)</div><div class="v" id="bTmax">–</div></div>
+        <div class="tuile"><div class="l">T min cellules (°C)</div><div class="v" id="bTmin">–</div></div>
+        <div class="tuile" id="tbTmos"><div class="l">T MOS du BMS (°C)</div><div class="v" id="bTmos">–</div></div>
+      </div>
+      <p class="note">Le BMS n'accepte qu'une connexion : coupe le Bluetooth du téléphone. Après une déconnexion, il faut
+        le réveiller (bouton du pack ou chargeur). Lecture seule (commande 0xA0), une fois par seconde.</p>
+    </section>
   </div>
 </main>
 <script>
@@ -312,6 +329,7 @@ async function sonder() {
       al.push(`consigne ${L.iq_amont} pts à ${L.vitesse} km/h : bride non tenue, arrête`);
     $("tDef").classList.toggle("mal", !!L.defaut); $("tIq").classList.toggle("mal", L.iq !== null && Math.abs(L.iq) > sIq);
     $("tAmont").classList.toggle("mal", L.vitesse >= 17.5 && L.iq_amont > 0);
+    for (const a of alarmesBms()) al.push(a);
     const txt = al.join(" — ");
     $("alarme").style.display = txt ? "block" : "none"; $("alarme").textContent = txt;
     if (txt && txt !== alarmeCourante) { for (let i = 0; i < 4; i++) setTimeout(() => bip(1800, 0.18, undefined, 0.3), i * 250); journal("ALARME : " + txt); }
@@ -331,18 +349,22 @@ const FTMS_SVC = "00001826-0000-1000-8000-00805f9b34fb", FTMS_BIKE = "00002ad2-0
 const FTMS_CP = "00002ad9-0000-1000-8000-00805f9b34fb", FTMS_RANGE = "00002ad6-0000-1000-8000-00805f9b34fb";
 let trainerDev = null, trainerGatt = null, ftmsCtrl = null, ftmsResRange = null;
 
-function onCps(e) { const dv = e.target.value; if (dv.byteLength >= 4) $("trP").textContent = dv.getInt16(2, true); }
+const trDernier = { v: null, cad: null, p: null };
+function onCps(e) { const dv = e.target.value; if (dv.byteLength >= 4) { trDernier.p = dv.getInt16(2, true); $("trP").textContent = trDernier.p; } }
 function onBike(e) {
   const dv = e.target.value; if (dv.byteLength < 4) return;
   const f = dv.getUint16(0, true); let o = 2;
-  if (!(f & 0x0001)) { $("trV").textContent = (dv.getUint16(o, true) / 100).toFixed(1); o += 2; }   // bit 0 inversé
+  if (!(f & 0x0001)) { trDernier.v = dv.getUint16(o, true) / 100; $("trV").textContent = trDernier.v.toFixed(1); o += 2; }   // bit 0 inversé
   if (f & 0x0002) o += 2;
-  if (f & 0x0004) { $("trC").textContent = Math.round(dv.getUint16(o, true) / 2); o += 2; }
+  if (f & 0x0004) { trDernier.cad = Math.round(dv.getUint16(o, true) / 2); $("trC").textContent = trDernier.cad; o += 2; }
   if (f & 0x0008) o += 2;
   if (f & 0x0010) o += 3;
   if (f & 0x0020) o += 2;
-  if (f & 0x0040 && o + 2 <= dv.byteLength) $("trP").textContent = dv.getInt16(o, true);
+  if (f & 0x0040 && o + 2 <= dv.byteLength) { trDernier.p = dv.getInt16(o, true); $("trP").textContent = trDernier.p; }
 }
+/* une mesure du home trainer par seconde dans <nom>-externes.csv (pendant une capture) */
+setInterval(() => { if (trainerGatt && trainerGatt.connected && trDernier.v !== null)
+  api("/api/externe", { source: "trainer", champs: { ...trDernier } }).catch(() => {}); }, 1000);
 function onCp(e) {
   const dv = e.target.value;
   if (dv.byteLength >= 3 && dv.getUint8(0) === 0x80 && dv.getUint8(2) !== 0x01) journal(`home trainer : commande 0x${dv.getUint8(1).toString(16)} refusée (code ${dv.getUint8(2)})`);
@@ -401,6 +423,76 @@ $("btnTrainer").onclick = async () => {
     $("trEtat").textContent = "";
   } catch (e) { $("trEtat").textContent = "erreur : " + e.message; }
 };
+/* ---------------------------------------------------------------------------------------------------------------
+   BMS DPowerCore DXB76E : comportement réel décrit dans shared/ble-specs/DPowerCore-BMS-BLE-Protocol-REAL-DXB76E.md
+   (décodage repris de sykloconnect dpc_parser.dart). Service fff0, écriture fff5 en paquets de 20 octets (en-tête
+   obligatoire : longueur, puis 0x11 = paquet 1/1), JAMAIS d'ACK ; réponse brute sur fff6, réassemblée en flux.
+   Trame : 3A aim(03) src(06) cmd lenH lenL data sumH sumL 0D 0A, somme 16 bits hors 3A, gros-boutiste.
+   0xA0 : tension U32 mV, courant S32 mA (charge +, décharge −), status U32, SOC, capacités, T max / T min / T MOS en
+   0,1 K (°C = (v − 2731) / 10). Lecture seule, sans authentification (non imposée sur ce firmware).
+--------------------------------------------------------------------------------------------------------------- */
+const DPC_SVC = "0000fff0-0000-1000-8000-00805f9b34fb", DPC_W = "0000fff5-0000-1000-8000-00805f9b34fb",
+      DPC_N = "0000fff6-0000-1000-8000-00805f9b34fb", DPC_UART = "49535343-fe7d-4ae5-8fa9-9fafd205e455";
+const DPC_LIRE_A0 = Uint8Array.of(0x0A, 0x11, 0x3A, 0x03, 0x06, 0xA0, 0x00, 0x00, 0x00, 0xA9, 0x0D, 0x0A);
+let bmsW = null, bmsBuf = [], bmsTimer = null, bms = null;
+function bmsNotif(e) {
+  const dv = e.target.value; for (let i = 0; i < dv.byteLength; i++) bmsBuf.push(dv.getUint8(i));
+  for (;;) {
+    while (bmsBuf.length && bmsBuf[0] !== 0x3A) bmsBuf.shift();
+    if (bmsBuf.length < 6) return;
+    const len = (bmsBuf[4] << 8) | bmsBuf[5], tot = 6 + len + 4;
+    if (len > 400) { bmsBuf.shift(); continue; }
+    if (bmsBuf.length < tot) return;
+    const f = bmsBuf.slice(0, tot); bmsBuf = bmsBuf.slice(tot);
+    let s = 0; for (let i = 1; i < 6 + len; i++) s = (s + f[i]) & 0xFFFF;
+    if (f[tot - 2] !== 0x0D || f[tot - 1] !== 0x0A || s !== ((f[6 + len] << 8) | f[7 + len])) continue;
+    if (f[3] !== 0xA0 || len < 33) continue;
+    const d = f.slice(6, 6 + len);
+    const u32 = i => ((d[i] << 24) >>> 0) + (d[i + 1] << 16) + (d[i + 2] << 8) + d[i + 3];
+    const i32 = i => (d[i] << 24) | (d[i + 1] << 16) | (d[i + 2] << 8) | d[i + 3];
+    const tC = i => Math.round(((d[i] << 8) | d[i + 1]) - 2731) / 10;
+    bms = { v: u32(0) / 1000, i_decharge: -i32(4) / 1000, soc: d[12], tmax: tC(25), tmin: tC(27), tmos: tC(29),
+            status: "0x" + u32(8).toString(16).padStart(8, "0"), t: Date.now() };
+    $("bV").textContent = bms.v.toFixed(2); $("bI").textContent = bms.i_decharge.toFixed(2); $("bSoc").textContent = bms.soc;
+    $("bTmax").textContent = bms.tmax.toFixed(1); $("bTmin").textContent = bms.tmin.toFixed(1); $("bTmos").textContent = bms.tmos.toFixed(1);
+    $("bmsEtat").textContent = "status " + bms.status;
+    api("/api/externe", { source: "bms", champs: bms }).catch(() => {});
+  }
+}
+function alarmesBms() {
+  const a = [];
+  if (!bms || Date.now() - bms.t > 5000) return a;
+  if (bms.i_decharge > 16) a.push(`BMS : décharge ${bms.i_decharge.toFixed(1)} A (> 16) : arrête`);
+  if (bms.tmax > 50) a.push(`BMS : cellules à ${bms.tmax} °C (> 50) : arrête`);
+  if (bms.tmos > 70) a.push(`BMS : MOS à ${bms.tmos} °C (> 70) : arrête`);
+  $("tbI").classList.toggle("mal", bms.i_decharge > 16); $("tbTmax").classList.toggle("mal", bms.tmax > 50);
+  $("tbTmos").classList.toggle("mal", bms.tmos > 70);
+  return a;
+}
+$("btnBms").onclick = async () => {
+  if (!navigator.bluetooth) { alert("Web Bluetooth indisponible : ouvre http://localhost:8770 dans Chrome ou Edge."); return; }
+  try {
+    $("bmsEtat").textContent = "recherche… (réveille le BMS : bouton du pack)";
+    const dev = await navigator.bluetooth.requestDevice({ filters: [{ namePrefix: "DXB" }], optionalServices: [DPC_SVC, DPC_UART] });
+    const gatt = await dev.gatt.connect();
+    const svc = await gatt.getPrimaryService(DPC_SVC);
+    bmsW = await svc.getCharacteristic(DPC_W);
+    const n = await svc.getCharacteristic(DPC_N);
+    await n.startNotifications(); n.addEventListener("characteristicvaluechanged", bmsNotif);
+    dev.addEventListener("gattserverdisconnected", () => {
+      clearInterval(bmsTimer); bmsW = null; $("bmsEtat").textContent = "déconnecté (réveille le BMS pour reconnecter)";
+      $("btnBms").textContent = "Reconnecter le BMS"; journal("BMS déconnecté");
+    });
+    clearInterval(bmsTimer);
+    bmsTimer = setInterval(() => {
+      if (!bmsW) return;
+      (bmsW.writeValueWithoutResponse ? bmsW.writeValueWithoutResponse(DPC_LIRE_A0) : bmsW.writeValue(DPC_LIRE_A0)).catch(() => {});
+    }, 1000);
+    $("btnBms").textContent = (dev.name || "BMS") + " connecté"; $("bmsEtat").textContent = "lecture 0xA0 chaque seconde";
+    journal(`BMS ${dev.name || ""} connecté (lecture seule 0xA0, 1 Hz)`);
+  } catch (e) { $("bmsEtat").textContent = "erreur : " + e.message; }
+};
+
 for (const b of document.querySelectorAll(".trCmd")) b.onclick = async () => {
   try {
     if (b.dataset.res !== undefined) { await resistance(Number(b.dataset.res)) ? journal(`home trainer : résistance ${b.dataset.res} %`) : alert("Home trainer non connecté ou sans contrôle."); }

@@ -57,6 +57,21 @@ class Capture:
                 self._ecrire_journal()
         return e
 
+    def externe(self, source, champs):
+        """mesure hors CAN (BMS, home trainer) envoyee par la page : <nom>-externes.csv, pendant la capture seulement"""
+        with self.verrou:
+            if not self.actif():
+                return False
+            chemin = os.path.join(self.dossier, self.nom + "-externes.csv")
+            neuf = not os.path.exists(chemin)
+            with open(chemin, "a", newline="", encoding="utf-8") as f:
+                w = csv.writer(f)
+                if neuf:
+                    w.writerow(["t_pc", "t_trame", "source", "champs"])
+                w.writerow([round(time.time() - self.t0, 3), self.t_trame, str(source)[:20],
+                            json.dumps(champs, ensure_ascii=False)[:500]])
+        return True
+
     def _ecrire_journal(self):
         with open(os.path.join(self.dossier, self.nom + "-journal.json"), "w", encoding="utf-8") as f:
             json.dump({"capture": self.nom + ".csv", "evenements": self.journal}, f, ensure_ascii=False, indent=1)
@@ -162,6 +177,8 @@ class Gestion(BaseHTTPRequestHandler):
             self._json({"ok": True})
         elif self.path == "/api/evenement":
             self._json(self.cap.evenement(c.get("texte", "")))
+        elif self.path == "/api/externe":
+            self._json({"ok": self.cap.externe(c.get("source", "?"), c.get("champs", {}))})
         else:
             self._json({"erreur": "inconnu"}, 404)
 
