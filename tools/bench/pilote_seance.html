@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pilote de séance</title>
+<style>
+  :root { --fond:#111418; --carte:#1b2027; --ligne:#2b323c; --texte:#e8ecf1; --doux:#9aa5b4; --ok:#3ecf8e;
+          --att:#f5b942; --mal:#ff5d5d; --bleu:#5aa9ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--fond); color:var(--texte); font:16px/1.4 system-ui, "Segoe UI", sans-serif; }
+  header { display:flex; flex-wrap:wrap; gap:12px; align-items:center; padding:12px 16px; border-bottom:1px solid var(--ligne); }
+  header h1 { font-size:20px; margin:0 12px 0 0; }
+  .badge { padding:3px 10px; border-radius:999px; background:var(--carte); border:1px solid var(--ligne); color:var(--doux); font-size:14px; }
+  .badge.ok { color:var(--ok); border-color:var(--ok); } .badge.mal { color:var(--mal); border-color:var(--mal); }
+  #alarme { display:none; margin:12px 16px 0; padding:14px 16px; border-radius:10px; background:var(--mal); color:#fff;
+            font-size:22px; font-weight:700; }
+  main { display:grid; grid-template-columns:minmax(0,1.3fr) minmax(0,1fr); gap:16px; padding:16px; }
+  @media (max-width:900px) { main { grid-template-columns:1fr; } }
+  section { background:var(--carte); border:1px solid var(--ligne); border-radius:12px; padding:14px 16px; }
+  h2 { font-size:15px; text-transform:uppercase; letter-spacing:.05em; color:var(--doux); margin:0 0 10px; }
+  button { font:inherit; padding:9px 14px; border-radius:8px; border:1px solid var(--ligne); background:#26303b; color:var(--texte); cursor:pointer; }
+  button:hover { border-color:var(--bleu); } button:disabled { opacity:.45; cursor:default; }
+  button.go { background:#1f6f4a; border-color:var(--ok); font-weight:700; } button.stop { background:#7a2626; border-color:var(--mal); font-weight:700; }
+  select, input { font:inherit; padding:7px 9px; border-radius:8px; border:1px solid var(--ligne); background:#0f1317; color:var(--texte); }
+  .rang { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px; }
+  #phase { text-align:center; padding:18px 8px 10px; }
+  #phaseId { font-size:22px; color:var(--doux); }
+  #phaseTxt { font-size:30px; font-weight:700; margin:8px 0 6px; min-height:84px; }
+  #compte { font-size:96px; font-weight:800; font-variant-numeric:tabular-nums; line-height:1; }
+  #rythme { display:flex; justify-content:center; align-items:center; gap:12px; margin-top:10px; color:var(--doux); }
+  #point { width:34px; height:34px; border-radius:50%; background:#2b323c; transition:background .05s; }
+  #point.flash { background:var(--att); }
+  #attendu { margin-top:10px; color:var(--doux); }
+  ol#liste { margin:12px 0 0; padding-left:22px; color:var(--doux); }
+  ol#liste li.encours { color:var(--texte); font-weight:700; } ol#liste li.fait { text-decoration:line-through; }
+  .grille { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:8px; }
+  .tuile { background:#0f1317; border:1px solid var(--ligne); border-radius:8px; padding:8px 10px; }
+  .tuile .l { font-size:12px; color:var(--doux); } .tuile .v { font-size:24px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .tuile.mal { border-color:var(--mal); } .tuile.mal .v { color:var(--mal); }
+  #journal { max-height:180px; overflow:auto; font:13px/1.5 ui-monospace, Consolas, monospace; color:var(--doux); }
+  .note { font-size:13px; color:var(--doux); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Pilote de séance</h1>
+  <span class="badge" id="bServeur">serveur…</span>
+  <span class="badge" id="bCapture">capture : arrêtée</span>
+  <span class="badge" id="bFirm">firmware –</span>
+  <span class="badge" id="bTrainer">home trainer : non connecté</span>
+</header>
+<div id="alarme"></div>
+<main>
+  <div>
+    <section>
+      <h2>Essai</h2>
+      <div class="rang">
+        <select id="proto"></select>
+        <input id="nom" size="34" title="nom du fichier de capture (CSV)">
+        <label class="note" id="lDuree" style="display:none">durée <input id="duree" size="4" value="60"> s</label>
+      </div>
+      <div class="rang">
+        <button class="go" id="btnGo">Démarrer l'essai</button>
+        <button class="stop" id="btnStop" disabled>Arrêter</button>
+        <span class="note">L'arrêt d'urgence reste physique : coupure de l'alimentation.</span>
+      </div>
+      <div id="phase">
+        <div id="phaseId">Prêt</div>
+        <div id="phaseTxt">Choisis l'essai, connecte le home trainer, puis « Démarrer ».</div>
+        <div id="compte">–</div>
+        <div id="rythme"><div id="point"></div><span id="bpm">pas de métronome</span></div>
+        <div id="attendu"></div>
+      </div>
+      <ol id="liste"></ol>
+    </section>
+    <section style="margin-top:16px">
+      <h2>Journal</h2>
+      <div id="journal"></div>
+    </section>
+  </div>
+  <div>
+    <section>
+      <h2>Contrôleur en direct (CAN, écoute seule)</h2>
+      <div class="grille">
+        <div class="tuile" id="tV"><div class="l">vitesse (km/h)</div><div class="v" id="vV">–</div></div>
+        <div class="tuile"><div class="l">cadence (tr/min)</div><div class="v" id="vCad">–</div></div>
+        <div class="tuile"><div class="l">erps</div><div class="v" id="vErps">–</div></div>
+        <div class="tuile"><div class="l">couple (mV) / zéro</div><div class="v" id="vCouple">–</div></div>
+        <div class="tuile" id="tAmont"><div class="l">consigne amont (pts)</div><div class="v" id="vAmont">–</div></div>
+        <div class="tuile"><div class="l">consigne PI (pts)</div><div class="v" id="vCons">–</div></div>
+        <div class="tuile" id="tIq"><div class="l">i_q (pts)</div><div class="v" id="vIq">–</div></div>
+        <div class="tuile"><div class="l">pont (MOE)</div><div class="v" id="vMoe">–</div></div>
+        <div class="tuile" id="tDef"><div class="l">défaut</div><div class="v" id="vDef">–</div></div>
+        <div class="tuile"><div class="l">Vbat / Ibat</div><div class="v" id="vBat">–</div></div>
+        <div class="tuile"><div class="l">appels reg_ADC /s</div><div class="v" id="vHz">–</div></div>
+        <div class="tuile"><div class="l">bride (km/h) / niveau</div><div class="v" id="vBride">–</div></div>
+      </div>
+      <p class="note">Les valeurs ne s'affichent que pendant une capture : le bus n'est ouvert qu'à ce moment-là.</p>
+    </section>
+    <section style="margin-top:16px">
+      <h2>Home trainer</h2>
+      <div class="rang">
+        <button id="btnTrainer">Connecter le home trainer</button>
+        <span class="note" id="trEtat"></span>
+      </div>
+      <div class="grille" style="margin-bottom:10px">
+        <div class="tuile"><div class="l">vitesse trainer (km/h)</div><div class="v" id="trV">–</div></div>
+        <div class="tuile"><div class="l">cadence trainer</div><div class="v" id="trC">–</div></div>
+        <div class="tuile"><div class="l">puissance (W)</div><div class="v" id="trP">–</div></div>
+      </div>
+      <div class="rang">
+        <button class="trCmd" data-res="0">Résistance 0 %</button>
+        <button class="trCmd" data-res="10">10 %</button>
+        <button class="trCmd" data-res="20">20 %</button>
+        <button class="trCmd" data-pente="0">Pente 0 %</button>
+        <button class="trCmd" data-pente="-3">Pente −3 %</button>
+      </div>
+      <p class="note">À la connexion, la résistance est mise à 0 % automatiquement. Ouvre la page dans Chrome ou Edge
+        (Web Bluetooth).</p>
+    </section>
+  </div>
+</main>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+
+/* ---------------------------------------------------------------------------------------------------------------
+   PROTOCOLES : une phase = identifiant, durée (s), métronome (bpm ou null), consigne, attendu (affiché, non jugé).
+--------------------------------------------------------------------------------------------------------------- */
+const PROTOCOLES = {
+  v2: { titre: "V2 : bride, aimant à la main (pont actif)", nom: "vitesse-V2-aimant-main-e013e55", phases: [
+    { id: "P0", d: 10, bpm: 25,   txt: "Tourne le pédalier à la main : un tour à chaque bip. Pas d'aimant.",
+      att: "vitesse 0 ; consigne 3 à 9 pts ; pont actif" },
+    { id: "P1", d: 10, bpm: 60,   txt: "Continue le pédalier. Un passage d'aimant à chaque bip.",
+      att: "≈ 7,9 km/h, pas 15,8 ; consigne inchangée si cadence > 15, sinon 0" },
+    { id: "P2", d: 10, bpm: 150,  txt: "Continue le pédalier. Un passage d'aimant à chaque bip (rapide).",
+      att: "≈ 19,8 km/h ; consigne 0" },
+    { id: "P3", d: 10, bpm: null, txt: "Range l'aimant. Continue le pédalier seul.",
+      att: "vitesse à 0 environ 5 s après le dernier passage, puis la consigne revient" },
+    { id: "P4", d: 8,  bpm: null, txt: "Arrête tout. Mains et pieds relâchés, ne touche plus à rien.",
+      att: "consigne 0 ; pont coupé quand le moteur s'arrête" } ] },
+  libre: { titre: "Capture libre (durée réglable)", nom: "capture-libre-e013e55", libre: true, phases: [
+    { id: "L", d: 60, bpm: null, txt: "Capture en cours.", att: "" } ] }
+};
+const PREPA = 5, MARGE = 6;      // s : compte à rebours avant P0, capture prolongée après la dernière phase
+
+/* ---------------------------------------------------------------- son ---------------------------------------- */
+let ac = null;
+function audio() { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === "suspended") ac.resume(); return ac; }
+function bip(f, dur, quand, vol) {
+  const a = audio(), t = quand ?? a.currentTime, o = a.createOscillator(), g = a.createGain();
+  o.frequency.value = f; o.type = "square";
+  g.gain.setValueAtTime(vol ?? 0.15, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g).connect(a.destination); o.start(t); o.stop(t + dur + 0.02);
+}
+
+/* métronome : planification Web Audio (précise), flash visuel en parallèle */
+let metro = null;
+function metronome(bpm) {
+  arreterMetronome();
+  if (!bpm) { $("bpm").textContent = "pas de métronome"; return; }
+  $("bpm").textContent = bpm + " bips/min";
+  const a = audio(), p = 60 / bpm;
+  metro = { suivant: a.currentTime + 0.05, p, timer: null };
+  metro.timer = setInterval(() => {
+    while (metro && metro.suivant < a.currentTime + 0.12) {
+      const t = metro.suivant;
+      bip(1500, 0.04, t, 0.12);
+      setTimeout(() => { $("point").classList.add("flash"); setTimeout(() => $("point").classList.remove("flash"), 90); },
+                 Math.max(0, (t - a.currentTime) * 1000));
+      metro.suivant += metro.p;
+    }
+  }, 25);
+}
+function arreterMetronome() { if (metro) { clearInterval(metro.timer); metro = null; } }
+
+/* ---------------------------------------------------------------- serveur ------------------------------------- */
+async function api(chemin, corps) {
+  const r = await fetch(chemin, corps === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" },
+                                                           body: JSON.stringify(corps) });
+  return r.json();
+}
+function journal(texte) {
+  const l = document.createElement("div");
+  l.textContent = new Date().toLocaleTimeString("fr-FR") + "  " + texte;
+  $("journal").prepend(l);
+  api("/api/evenement", { texte }).catch(() => {});
+}
+
+/* ---------------------------------------------------------------- déroulé ------------------------------------- */
+let run = null;     // { proto, idx, fin, timer }
+function protoCourant() { return PROTOCOLES[$("proto").value]; }
+function remplirListe() {
+  const p = protoCourant();
+  $("liste").innerHTML = p.phases.map(ph => `<li>${ph.id} · ${ph.d} s · ${ph.txt}</li>`).join("");
+  $("nom").value = p.nom + "-" + new Date().toTimeString().slice(0, 5).replace(":", "h");
+  $("lDuree").style.display = p.libre ? "" : "none";
+}
+for (const [k, p] of Object.entries(PROTOCOLES)) $("proto").add(new Option(p.titre, k));
+$("proto").onchange = remplirListe; remplirListe();
+
+$("btnGo").onclick = async () => {
+  audio();
+  const p = structuredClone(protoCourant());
+  if (p.libre) p.phases[0].d = Math.max(5, Number($("duree").value) || 60);
+  const total = PREPA + p.phases.reduce((s, ph) => s + ph.d, 0) + MARGE;
+  const r = await api("/api/capture/demarrer", { nom: $("nom").value, duree: total }).catch(e => ({ ok: false, erreur: e.message }));
+  if (!r.ok) { journal("capture refusée : " + r.erreur); alert("Capture refusée : " + r.erreur); return; }
+  journal(`début de l'essai « ${p.titre} », capture ${r.nom}.csv (${total} s)`);
+  $("btnGo").disabled = true; $("btnStop").disabled = false; $("proto").disabled = true;
+  run = { p, idx: -1 };
+  // compte à rebours de préparation
+  $("phaseId").textContent = "Préparation"; $("phaseTxt").textContent = "Mets-toi en place.";
+  $("attendu").textContent = ""; metronome(null);
+  decompte(PREPA, s => { if (s <= 3) bip(660, 0.12); }, () => phaseSuivante());
+};
+$("btnStop").onclick = () => terminer("arrêté par l'opérateur", true);
+
+function decompte(sec, chaqueSec, fin) {
+  clearInterval(run && run.timer);
+  const t0 = Date.now();
+  $("compte").textContent = sec;
+  let dernier = sec;
+  run.timer = setInterval(() => {
+    const reste = Math.ceil(sec - (Date.now() - t0) / 1000);
+    if (reste !== dernier) { dernier = reste; if (reste > 0) { $("compte").textContent = reste; chaqueSec && chaqueSec(reste); } }
+    if (reste <= 0) { clearInterval(run.timer); fin(); }
+  }, 50);
+}
+function phaseSuivante() {
+  if (!run) return;
+  run.idx++;
+  const lis = $("liste").children;
+  for (let i = 0; i < lis.length; i++) lis[i].className = i < run.idx ? "fait" : (i === run.idx ? "encours" : "");
+  if (run.idx >= run.p.phases.length) { terminer("protocole terminé", false); return; }
+  const ph = run.p.phases[run.idx];
+  bip(880, 0.35); setTimeout(() => bip(1175, 0.25), 380);
+  $("phaseId").textContent = `${ph.id} · ${run.idx + 1}/${run.p.phases.length}`;
+  $("phaseTxt").textContent = ph.txt;
+  $("attendu").textContent = ph.att ? "Attendu : " + ph.att : "";
+  journal(`${ph.id} début : ${ph.txt}${ph.bpm ? " (" + ph.bpm + " bips/min)" : ""}`);
+  setTimeout(() => metronome(ph.bpm), 650);   // après le bip de changement de phase
+  decompte(ph.d, s => { if (s <= 3) bip(440, 0.1); }, () => { journal(`${ph.id} fin`); phaseSuivante(); });
+}
+function terminer(raison, couperCapture) {
+  if (!run) return;
+  clearInterval(run.timer); arreterMetronome(); run = null;
+  bip(988, 0.15); setTimeout(() => bip(988, 0.15), 200); setTimeout(() => bip(1319, 0.4), 400);
+  $("phaseId").textContent = "Terminé"; $("phaseTxt").textContent = raison; $("compte").textContent = "–";
+  $("attendu").textContent = couperCapture ? "" : `La capture continue ${MARGE} s puis s'arrête seule.`;
+  journal("fin de l'essai : " + raison);
+  if (couperCapture) api("/api/capture/arreter", {}).catch(() => {});
+  $("btnGo").disabled = false; $("btnStop").disabled = true; $("proto").disabled = false;
+}
+
+/* ---------------------------------------------------------------- valeurs en direct et alarmes ---------------- */
+let alarmeCourante = "";
+function fx(v, d) { return v === null || v === undefined ? "–" : (typeof v === "number" && d !== undefined ? v.toFixed(d) : v); }
+async function sonder() {
+  try {
+    const e = await api("/api/etat");
+    $("bServeur").textContent = "serveur OK"; $("bServeur").className = "badge ok";
+    $("bCapture").textContent = e.actif ? `capture : ${e.nom} · ${fx(e.ecoule, 0)}/${fx(e.duree, 0)} s · ${e.n} trames`
+                                        : (e.erreur ? "capture : ERREUR " + e.erreur : "capture : arrêtée");
+    $("bCapture").className = "badge " + (e.erreur ? "mal" : (e.actif ? "ok" : ""));
+    const L = e.live;
+    if (L.git) { $("bFirm").textContent = "firmware " + L.git; }
+    $("vV").textContent = fx(L.vitesse, 2); $("vCad").textContent = fx(L.cadence); $("vErps").textContent = fx(L.erps);
+    $("vCouple").textContent = fx(L.couple_mV) + " / " + fx(L.zero_mV);
+    $("vAmont").textContent = fx(L.iq_amont); $("vCons").textContent = fx(L.iq_cons); $("vIq").textContent = fx(L.iq);
+    $("vMoe").textContent = L.moe === null ? "–" : (L.moe ? "actif" : "coupé");
+    $("vDef").textContent = fx(L.defaut); $("vBat").textContent = fx(L.vbat, 1) + " / " + fx(L.ibat, 1);
+    $("vHz").textContent = fx(L.regadc_hz); $("vBride").textContent = fx(L.vmax) + " / " + fx(L.niveau);
+    const al = [];
+    if (e.actif && L.defaut) al.push(`DÉFAUT ${L.defaut} : arrête et coupe l'alimentation`);
+    if (e.actif && L.iq !== null && Math.abs(L.iq) > 30) al.push(`i_q = ${L.iq} pts (> 30) : arrête et coupe l'alimentation`);
+    if (e.actif && L.vitesse !== null && L.vitesse >= 17.5 && L.iq_amont > 0)
+      al.push(`consigne ${L.iq_amont} pts à ${L.vitesse} km/h : bride non tenue, arrête`);
+    $("tDef").classList.toggle("mal", !!L.defaut); $("tIq").classList.toggle("mal", L.iq !== null && Math.abs(L.iq) > 30);
+    $("tAmont").classList.toggle("mal", L.vitesse >= 17.5 && L.iq_amont > 0);
+    const txt = al.join(" — ");
+    $("alarme").style.display = txt ? "block" : "none"; $("alarme").textContent = txt;
+    if (txt && txt !== alarmeCourante) { for (let i = 0; i < 4; i++) setTimeout(() => bip(1800, 0.18, undefined, 0.3), i * 250); journal("ALARME : " + txt); }
+    alarmeCourante = txt;
+  } catch (_) { $("bServeur").textContent = "serveur injoignable"; $("bServeur").className = "badge mal"; }
+}
+setInterval(sonder, 250); sonder();
+
+/* ---------------------------------------------------------------------------------------------------------------
+   HOME TRAINER : repris du dashboard Z8 (syklo-z8-dashboard 88e8aed, index.html). Données par Cycling Power (0x1818)
+   ou FTMS Indoor Bike Data (0x2AD2) ; contrôle par le FTMS Control Point (0x2AD9) : Request Control (0x00),
+   Start/Resume (0x07), Set Target Resistance Level (0x04, uint8 en 0,1 niveau, mappé sur la plage 0x2AD6 si lisible),
+   Indoor Bike Simulation (0x11, pente). Pas d'ERG.
+--------------------------------------------------------------------------------------------------------------- */
+const CPS_SVC = "00001818-0000-1000-8000-00805f9b34fb", CPS_MEAS = "00002a63-0000-1000-8000-00805f9b34fb";
+const FTMS_SVC = "00001826-0000-1000-8000-00805f9b34fb", FTMS_BIKE = "00002ad2-0000-1000-8000-00805f9b34fb";
+const FTMS_CP = "00002ad9-0000-1000-8000-00805f9b34fb", FTMS_RANGE = "00002ad6-0000-1000-8000-00805f9b34fb";
+let trainerDev = null, trainerGatt = null, ftmsCtrl = null, ftmsResRange = null;
+
+function onCps(e) { const dv = e.target.value; if (dv.byteLength >= 4) $("trP").textContent = dv.getInt16(2, true); }
+function onBike(e) {
+  const dv = e.target.value; if (dv.byteLength < 4) return;
+  const f = dv.getUint16(0, true); let o = 2;
+  if (!(f & 0x0001)) { $("trV").textContent = (dv.getUint16(o, true) / 100).toFixed(1); o += 2; }   // bit 0 inversé
+  if (f & 0x0002) o += 2;
+  if (f & 0x0004) { $("trC").textContent = Math.round(dv.getUint16(o, true) / 2); o += 2; }
+  if (f & 0x0008) o += 2;
+  if (f & 0x0010) o += 3;
+  if (f & 0x0020) o += 2;
+  if (f & 0x0040 && o + 2 <= dv.byteLength) $("trP").textContent = dv.getInt16(o, true);
+}
+function onCp(e) {
+  const dv = e.target.value;
+  if (dv.byteLength >= 3 && dv.getUint8(0) === 0x80 && dv.getUint8(2) !== 0x01) journal(`home trainer : commande 0x${dv.getUint8(1).toString(16)} refusée (code ${dv.getUint8(2)})`);
+}
+async function controleFtms() {
+  const svc = await trainerGatt.getPrimaryService(FTMS_SVC);
+  try { const dv = await (await svc.getCharacteristic(FTMS_RANGE)).readValue();
+        ftmsResRange = { min: dv.getInt16(0, true) / 10, max: dv.getInt16(2, true) / 10 }; } catch (_) {}
+  ftmsCtrl = await svc.getCharacteristic(FTMS_CP);
+  await ftmsCtrl.startNotifications();
+  ftmsCtrl.addEventListener("characteristicvaluechanged", onCp);
+  await ftmsCtrl.writeValue(Uint8Array.of(0x00));
+  try { await ftmsCtrl.writeValue(Uint8Array.of(0x07)); } catch (_) {}
+}
+async function resistance(pct) {
+  if (!ftmsCtrl) return false;
+  let val = ftmsResRange ? Math.round((ftmsResRange.min + (ftmsResRange.max - ftmsResRange.min) * pct / 100) * 10) : Math.round(pct);
+  val = Math.max(0, Math.min(255, val));
+  await ftmsCtrl.writeValue(Uint8Array.of(0x04, val)); return true;
+}
+async function pente(p) {
+  if (!ftmsCtrl) return false;
+  const f = new Uint8Array(7), dv = new DataView(f.buffer);
+  dv.setUint8(0, 0x11); dv.setInt16(1, 0, true); dv.setInt16(3, Math.round(p * 100), true); dv.setUint8(5, 40); dv.setUint8(6, 51);
+  await ftmsCtrl.writeValue(f); return true;
+}
+async function trainerSetup(dev) {
+  trainerGatt = await dev.gatt.connect();
+  let cps = true;
+  try { const ch = await (await trainerGatt.getPrimaryService(CPS_SVC)).getCharacteristic(CPS_MEAS);
+        await ch.startNotifications(); ch.addEventListener("characteristicvaluechanged", onCps); }
+  catch (_) { cps = false; }
+  try { const ch = await (await trainerGatt.getPrimaryService(FTMS_SVC)).getCharacteristic(FTMS_BIKE);
+        await ch.startNotifications(); ch.addEventListener("characteristicvaluechanged", onBike); } catch (_) {}
+  let ctrl = false;
+  try { await controleFtms(); ctrl = true; } catch (_) { ftmsCtrl = null; }
+  $("bTrainer").textContent = "home trainer : " + (dev.name || "connecté") + (ctrl ? " · contrôle" : " · sans contrôle");
+  $("bTrainer").className = "badge " + (ctrl ? "ok" : "mal");
+  $("btnTrainer").textContent = (dev.name || "Home trainer") + " connecté";
+  journal(`home trainer ${dev.name || ""} connecté (${cps ? "Cycling Power" : "FTMS"}${ctrl ? ", contrôle FTMS" : ", pas de contrôle"})`);
+  if (ctrl) { try { await resistance(0); journal("home trainer : résistance 0 %" + (ftmsResRange ? ` (plage ${ftmsResRange.min} à ${ftmsResRange.max})` : "")); }
+              catch (e) { journal("home trainer : résistance 0 % refusée : " + e.message); } }
+}
+$("btnTrainer").onclick = async () => {
+  if (!navigator.bluetooth) { alert("Web Bluetooth indisponible : ouvre http://localhost:8770 dans Chrome ou Edge."); return; }
+  try {
+    $("trEtat").textContent = "recherche…";
+    const dev = await navigator.bluetooth.requestDevice({ filters: [{ services: [CPS_SVC] }, { services: [FTMS_SVC] }],
+                                                          optionalServices: [CPS_SVC, FTMS_SVC] });
+    trainerDev = dev;
+    dev.addEventListener("gattserverdisconnected", () => {
+      ftmsCtrl = null; $("bTrainer").textContent = "home trainer : déconnecté"; $("bTrainer").className = "badge mal";
+      $("btnTrainer").textContent = "Reconnecter le home trainer"; journal("home trainer déconnecté");
+    });
+    await trainerSetup(dev);
+    $("trEtat").textContent = "";
+  } catch (e) { $("trEtat").textContent = "erreur : " + e.message; }
+};
+for (const b of document.querySelectorAll(".trCmd")) b.onclick = async () => {
+  try {
+    if (b.dataset.res !== undefined) { await resistance(Number(b.dataset.res)) ? journal(`home trainer : résistance ${b.dataset.res} %`) : alert("Home trainer non connecté ou sans contrôle."); }
+    else { await pente(Number(b.dataset.pente)) ? journal(`home trainer : pente ${b.dataset.pente} %`) : alert("Home trainer non connecté ou sans contrôle."); }
+  } catch (e) { journal("home trainer : commande refusée : " + e.message); }
+};
+</script>
+</body>
+</html>
