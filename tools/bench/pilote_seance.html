@@ -59,6 +59,8 @@
         <select id="proto"></select>
         <input id="nom" size="34" title="nom du fichier de capture (CSV)">
         <label class="note" id="lDuree" style="display:none">durée <input id="duree" size="4" value="60"> s</label>
+        <label class="note" id="lPalier" style="display:none">palier <input id="palier" size="3" value="30"> pts ·
+          image <input id="image" size="8" value="9efc83e"></label>
       </div>
       <div class="rang">
         <button class="go" id="btnGo">Démarrer l'essai</button>
@@ -95,6 +97,9 @@
         <div class="tuile"><div class="l">Vbat / Ibat</div><div class="v" id="vBat">–</div></div>
         <div class="tuile"><div class="l">appels reg_ADC /s</div><div class="v" id="vHz">–</div></div>
         <div class="tuile"><div class="l">bride (km/h) / niveau</div><div class="v" id="vBride">–</div></div>
+        <div class="tuile"><div class="l">u_abs / plafond</div><div class="v" id="vUabs">–</div></div>
+        <div class="tuile"><div class="l">crête phase 50 ms (pts)</div><div class="v" id="vCrete">–</div></div>
+        <div class="tuile"><div class="l">ADC temp. PB1</div><div class="v" id="vPb1">–</div></div>
       </div>
       <p class="note">Les valeurs ne s'affichent que pendant une capture : le bus n'est ouvert qu'à ce moment-là.</p>
     </section>
@@ -140,6 +145,22 @@ const PROTOCOLES = {
       att: "vitesse à 0 environ 5 s après le dernier passage, puis la consigne revient" },
     { id: "P4", d: 8,  bpm: null, txt: "Arrête tout. Mains et pieds relâchés, ne touche plus à rien.",
       att: "consigne 0 ; pont coupé quand le moteur s'arrête" } ] },
+  /* essai-batterie-paliers-attendu-20261028.md : res = résistance imposée au home trainer au début de la phase (%) */
+  batterie: { titre: "Batterie : palier (accélérateur, marche de charge, pédalage)", nom: "batterie", palier: true, phases: [
+    { id: "B0", d: 10, bpm: null, res: 10, txt: "Repos. Ne touche à rien.",
+      att: "i_q 0, pont coupé, défaut 0" },
+    { id: "B1", d: 10, bpm: null, res: 10, txt: "Accélérateur à mi-course, tenu. Pieds hors des pédales.",
+      att: "consigne ≈ moitié du palier, i_q stable" },
+    { id: "B2", d: 10, bpm: null, res: 10, txt: "Accélérateur à fond, tenu.",
+      att: "i_q ≈ palier ± 3 (moins si u_abs atteint 1496), Ibat ≤ 15 A" },
+    { id: "B3", d: 10, bpm: null, res: 50, txt: "Garde l'accélérateur à fond : la résistance monte à 50 %.",
+      att: "le moteur ralentit ; i_q max ≤ 2 × palier, aucun défaut" },
+    { id: "B4", d: 8,  bpm: null, res: 10, txt: "Relâche l'accélérateur d'un coup.",
+      att: "consigne 0 en moins de 0,1 s, pas de i_q < −30" },
+    { id: "B5", d: 15, bpm: 90,   res: 20, txt: "Pédale au niveau 1, appui franc : un coup de pédale à chaque bip.",
+      att: "i_q ≤ palier + 3, Ibat ≤ 15 A" },
+    { id: "B6", d: 10, bpm: null, res: 10, txt: "Arrête de pédaler, pieds relâchés. Touche le boîtier : chaud ?",
+      att: "consigne 0, pont coupé quand le moteur s'arrête" } ] },
   libre: { titre: "Capture libre (durée réglable)", nom: "capture-libre-e013e55", libre: true, phases: [
     { id: "L", d: 60, bpm: null, txt: "Capture en cours.", att: "" } ] }
 };
@@ -194,11 +215,15 @@ function protoCourant() { return PROTOCOLES[$("proto").value]; }
 function remplirListe() {
   const p = protoCourant();
   $("liste").innerHTML = p.phases.map(ph => `<li>${ph.id} · ${ph.d} s · ${ph.txt}</li>`).join("");
-  $("nom").value = p.nom + "-" + new Date().toTimeString().slice(0, 5).replace(":", "h");
+  const base = p.palier ? `${p.nom}-P${$("palier").value}-${$("image").value}` : p.nom;
+  $("nom").value = base + "-" + new Date().toTimeString().slice(0, 5).replace(":", "h");
   $("lDuree").style.display = p.libre ? "" : "none";
+  $("lPalier").style.display = p.palier ? "" : "none";
 }
 for (const [k, p] of Object.entries(PROTOCOLES)) $("proto").add(new Option(p.titre, k));
-$("proto").onchange = remplirListe; remplirListe();
+$("proto").onchange = remplirListe; $("palier").onchange = remplirListe; $("image").onchange = remplirListe; remplirListe();
+/* seuil d'alarme i_q : 1,5 × le palier pendant un essai batterie (critère d'arrêt), sinon 30 pts */
+function seuilIq() { return run && run.p.palier ? 1.5 * (Number($("palier").value) || 30) : 30; }
 
 $("btnGo").onclick = async () => {
   audio();
@@ -240,6 +265,11 @@ function phaseSuivante() {
   $("phaseTxt").textContent = ph.txt;
   $("attendu").textContent = ph.att ? "Attendu : " + ph.att : "";
   journal(`${ph.id} début : ${ph.txt}${ph.bpm ? " (" + ph.bpm + " bips/min)" : ""}`);
+  if (ph.res !== undefined) {
+    if (ftmsCtrl) resistance(ph.res).then(() => journal(`home trainer : résistance ${ph.res} % (${ph.id})`))
+                                    .catch(e => journal(`home trainer : résistance ${ph.res} % refusée : ${e.message}`));
+    else journal(`home trainer non piloté : résistance ${ph.res} % NON appliquée (${ph.id})`);
+  }
   setTimeout(() => metronome(ph.bpm), 650);   // après le bip de changement de phase
   decompte(ph.d, s => { if (s <= 3) bip(440, 0.1); }, () => { journal(`${ph.id} fin`); phaseSuivante(); });
 }
@@ -272,12 +302,15 @@ async function sonder() {
     $("vMoe").textContent = L.moe === null ? "–" : (L.moe ? "actif" : "coupé");
     $("vDef").textContent = fx(L.defaut); $("vBat").textContent = fx(L.vbat, 1) + " / " + fx(L.ibat, 1);
     $("vHz").textContent = fx(L.regadc_hz); $("vBride").textContent = fx(L.vmax) + " / " + fx(L.niveau);
-    const al = [];
+    $("vUabs").textContent = fx(L.uabs) + " / 1496"; $("vCrete").textContent = fx(L.crete); $("vPb1").textContent = fx(L.adc_pb1);
+    const sIq = seuilIq(), al = [];
     if (e.actif && L.defaut) al.push(`DÉFAUT ${L.defaut} : arrête et coupe l'alimentation`);
-    if (e.actif && L.iq !== null && Math.abs(L.iq) > 30) al.push(`i_q = ${L.iq} pts (> 30) : arrête et coupe l'alimentation`);
+    if (e.actif && L.iq !== null && Math.abs(L.iq) > sIq) al.push(`i_q = ${L.iq} pts (> ${sIq}) : arrête et coupe l'alimentation`);
+    if (e.actif && L.ibat !== null && L.ibat > 16) al.push(`Ibat = ${L.ibat} A (> 16) : arrête et coupe la batterie`);
+    if (e.actif && L.vbat !== null && L.vbat > 5 && L.vbat < 31) al.push(`Vbat = ${L.vbat} V (< 31) : arrête`);
     if (e.actif && L.vitesse !== null && L.vitesse >= 17.5 && L.iq_amont > 0)
       al.push(`consigne ${L.iq_amont} pts à ${L.vitesse} km/h : bride non tenue, arrête`);
-    $("tDef").classList.toggle("mal", !!L.defaut); $("tIq").classList.toggle("mal", L.iq !== null && Math.abs(L.iq) > 30);
+    $("tDef").classList.toggle("mal", !!L.defaut); $("tIq").classList.toggle("mal", L.iq !== null && Math.abs(L.iq) > sIq);
     $("tAmont").classList.toggle("mal", L.vitesse >= 17.5 && L.iq_amont > 0);
     const txt = al.join(" — ");
     $("alarme").style.display = txt ? "block" : "none"; $("alarme").textContent = txt;
