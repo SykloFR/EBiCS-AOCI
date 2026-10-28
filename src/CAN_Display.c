@@ -52,6 +52,9 @@ uint8_t level_code_old;
 uint8_t level_counter;
 
 uint16_t Rx_MF_active=0;
+#ifdef ROUTE_BUILD
+extern volatile uint8_t route_niveau_demande;     /* socle de conformite (28/10, main.c) */
+#endif
 uint16_t checksum=0;
 
 void processCAN_Rx(MotorParams_t* MP, MotorState_t* MS){
@@ -195,6 +198,9 @@ void processCAN_Rx(MotorParams_t* MP, MotorState_t* MS){
 						MS->assist_level=9; //Boost
 						break;
 				}
+#ifdef ROUTE_BUILD
+				route_niveau_demande=MS->assist_level;   /* socle (28/10) : niveau demande, avant la borne et le timer L5 */
+#endif
 			}
 			if (receive_message.rx_data[1]==6)MS->pushassist_flag=SET;
 			else MS->pushassist_flag=RESET;

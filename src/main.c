@@ -53,6 +53,7 @@ OF SUCH DAMAGE.
 #include "moe_rotation.h"
 #include "base_temps.h"
 #include "rampe_moe.h"
+#include "socle_conformite.h"
 #endif
 #endif
 /* variables partagees avec les interruptions / le DMA : volatile obligatoire en -Os (EBiCS est compile en -O0,
@@ -341,6 +342,12 @@ uint32_t route_bt_prec = 0;
 /* rampe de consigne au reveil de MOE (lot A, 28/10, inc/rampe_moe.h) : debut au dernier MOE = 1 */
 uint32_t route_rampe_debut = 0;
 uint8_t route_rampe_active = 0;
+/* socle de conformite (28/10, inc/socle_conformite.h) : niveau demande par l'afficheur (ecrit par processCAN_Rx, avant
+   la borne du premier roulage et le timer du niveau 5), timer L5 et sa base de temps, echelle de courant effective */
+volatile uint8_t route_niveau_demande = 2;
+socle_l5_t route_l5 = SOCLE_L5_INIT;
+uint32_t route_l5_prec = 0;
+uint16_t route_pts_par_A_x100 = PH_COUNTS_PER_A_X100;
 void route_freq_ms(void)                          /* SysTick, 1 kHz */
 {
 	freq_diag_ms(&freq_diag, freq_n_isr, freq_n_trait, freq_n_boucle, ui_8_PWM_ON_Flag);
@@ -530,6 +537,9 @@ static uint8_t variante_init(void)
     bench_ph_max = (uint8_t)((PH_CURRENT_MAX * ech) / PH_COUNTS_PER_A_X100);
     bench_walk_max = (uint8_t)((BENCH_WALK_ILIM_MAX * ech) / PH_COUNTS_PER_A_X100);
     MP.phase_current_max = bench_ph_max;
+#ifdef ROUTE_BUILD
+    route_pts_par_A_x100 = (uint16_t)ech;          /* socle (28/10) : plafond de phase 1,75 x batterie a cette echelle */
+#endif
     return 1;
 }
 #endif
@@ -824,12 +834,24 @@ int main(void)
     	if(!gpio_input_bit_get(GPIOC,GPIO_PIN_13))MS.brake_active_flag=1;
     	else MS.brake_active_flag=0;
 #ifdef ROUTE_BUILD
-    	if(MS.assist_level > ROUTE_NIVEAU_MAX) MS.assist_level = ROUTE_NIVEAU_MAX;   /* premier roulage : niveau 1 seulement */
+    	{   /* niveau demande par l'afficheur, borne au premier roulage (niveau 1 seulement), puis timer du niveau 5 (socle 28/10) */
+    		uint8_t dem = route_niveau_demande;
+    		if(dem > ROUTE_NIVEAU_MAX) dem = ROUTE_NIVEAU_MAX;
+    		MS.assist_level = socle_code_niveau[socle_l5_pas(&route_l5, bt_ecart(&route_l5_prec, route_ticks_4k),
+    		                                                  level_to_array_element[dem])];
+    	}
 #endif
     	// update scaled current and speed
     	if(MS.assist_level!=assist_level_old){
     		speedlimitx100_scaled=MP.speedLimitx100*MP.assist_settings[level_to_array_element[MS.assist_level]][1]/100;
+#ifdef ROUTE_BUILD
+    		/* socle (28/10) : plafond batterie du niveau (R2) et phase 1,75 x batterie du niveau (R3), ecretee a MP.phase_current_max */
+    		MP.battery_current_max=socle_ibat_niveau_mA(level_to_array_element[MS.assist_level], BATTERYCURRENT_MAX);
+    		phase_current_max_scaled=socle_phase_niveau_pts(level_to_array_element[MS.assist_level], MP.battery_current_max,
+    		                                                 route_pts_par_A_x100, MP.phase_current_max);
+#else
     		phase_current_max_scaled=MP.phase_current_max*MP.assist_settings[level_to_array_element[MS.assist_level]][0]/100;
+#endif
         	MS.TQfilter=level_to_array_element[MS.assist_level];
         	MS.TQfilter=MP.assist_settings[MS.TQfilter][2];
         	MS.ext_boost_duration=MP.ext_boost_duration[level_to_array_element[MS.assist_level]];
@@ -2749,7 +2771,11 @@ uint16_t update_setpoint(void){
 	            if(MP.legalflag&&!MS.offroadflag){
 
 					if((uint16_cadence_filtered>>3)>15){
+#ifdef ROUTE_BUILD
+						MS.i_q_setpoint_temp=socle_bride(MS.i_q_setpoint_temp, MS.Speedx100, speedlimitx100_scaled);   /* (limite - 2) -> (limite + 2), socle 28/10 */
+#else
 						MS.i_q_setpoint_temp=map(MS.Speedx100, speedlimitx100_scaled,(speedlimitx100_scaled+200),MS.i_q_setpoint_temp,0);
+#endif
 					}
 					else{ //limit to 6km/h if pedals are not turning
 						MS.i_q_setpoint_temp=map(MS.Speedx100, 500,700,MS.i_q_setpoint_temp,0);

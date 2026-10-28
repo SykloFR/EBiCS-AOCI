@@ -49,6 +49,18 @@ chemins = {"0x3203 -> speedLimitx100": "speedLimitx100=receive_message" in pp_ca
            "mode hors route -> offroadflag": "offroadflag=!MS.offroadflag" in pp_main}
 for k, v in chemins.items():
     print(f"   {k:32s} : {'present' if v else 'absent'}")
+socle = {"bride (limite - 2) -> (limite + 2)": "socle_bride(MS.i_q_setpoint_temp" in pp_main,
+         "plafond batterie par niveau": "MP.battery_current_max=socle_ibat_niveau_mA(" in pp_main,
+         "phase 1,75 x batterie du niveau": "phase_current_max_scaled=socle_phase_niveau_pts(" in pp_main,
+         "timer L5": "socle_l5_pas(&route_l5" in pp_main,
+         "niveau demande ecrit par l'afficheur": "route_niveau_demande=MS->assist_level" in pp_can}
+for k, v in socle.items():
+    print(f"   socle (28/10) {k:38s} : {'present' if v else 'absent'}")
+if ROUTE:
+    print("route : socle de conformite present (bride, plafonds par niveau, timer L5, niveau demande) :",
+          "OK" if all(socle.values()) else "A VERIFIER")
+else:
+    print("banc : pas de socle de conformite :", "OK" if not any(socle.values()) else "A VERIFIER")
 if ROUTE:
     print("route : les quatre chemins qui changent la bride ou les parametres en marche sont absents :",
           "OK" if not any(chemins.values()) else "A VERIFIER")
@@ -311,6 +323,9 @@ if ROUTE:
     lec_r = fonctions_lisant("route_rampe_debut")
     print(f"rampe au reveil de MOE (lot A) : route_rampe_debut ecrit au MOE = 1, lu par {nom_us} avec route_rampe_active ({lec_r}) :",
           "OK" if nom_us in lec_r and len(lec_r) >= 2 and lit_adresse(us, "route_rampe_active") else "A VERIFIER")
+    lec_n = fonctions_lisant("route_niveau_demande")
+    print(f"socle (28/10) : route_niveau_demande ecrit par processCAN_Rx, lu par main avec route_l5 ({lec_n}) :",
+          "OK" if {"processCAN_Rx", "main"} <= set(lec_n) and "main" in fonctions_lisant("route_l5") else "A VERIFIER")
     lecteurs = fonctions_lisant("pedalier_exti12")
     print(f"pedalier : trame E20F, compteurs lus hors interruption par {lecteurs} :",
           "OK" if any(f != "EXTI10_15_IRQHandler" for f in lecteurs) and fonctions_lisant("pedalier_diag") else "A VERIFIER")
