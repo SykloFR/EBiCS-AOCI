@@ -290,12 +290,20 @@ if ROUTE:
           "OK" if {"TIMER1_IRQHandler", "TIMER2_IRQHandler", nom_us} <= set(lec_t) else "A VERIFIER")
     print(f"MOE en rotation : {nom_ra} lit ui_8_PWM_ON_Flag (RAZ du PI pont coupe seulement) :",
           "OK" if lit_adresse(ra, "ui_8_PWM_ON_Flag") else "A VERIFIER")
+    lec_4k = fonctions_lisant("route_ticks_4k")
+    print(f"base de temps (lot A, 28/10) : route_ticks_4k ecrit par TIMER1_IRQHandler, lu par {nom_ra} avec route_bt_prec ({lec_4k}) :",
+          "OK" if {"TIMER1_IRQHandler", nom_ra} <= set(lec_4k) and lit_adresse(ra, "route_bt_prec") else "A VERIFIER")
+    lec_r = fonctions_lisant("route_rampe_debut")
+    print(f"rampe au reveil de MOE (lot A) : route_rampe_debut ecrit au MOE = 1, lu par {nom_us} avec route_rampe_active ({lec_r}) :",
+          "OK" if nom_us in lec_r and len(lec_r) >= 2 and lit_adresse(us, "route_rampe_active") else "A VERIFIER")
     lecteurs = fonctions_lisant("pedalier_exti12")
     print(f"pedalier : trame E20F, compteurs lus hors interruption par {lecteurs} :",
           "OK" if any(f != "EXTI10_15_IRQHandler" for f in lecteurs) and fonctions_lisant("pedalier_diag") else "A VERIFIER")
 else:
     print("banc : regle de la porte 3 conservee (route_ticks_sans_hall absent) :",
           "OK" if "route_ticks_sans_hall" not in syms else "A VERIFIER")
+    print("banc : ni base de temps ni rampe du lot A (route_ticks_4k, route_bt_prec, route_rampe_debut absents) :",
+          "OK" if not any(x in syms for x in ("route_ticks_4k", "route_bt_prec", "route_rampe_debut")) else "A VERIFIER")
     print("banc : pas de mesure de frequence (freq_diag, freq_n_isr, route_freq_ms absents) :",
           "OK" if not any(x in syms for x in ("freq_diag", "freq_n_isr", "route_freq_ms")) else "A VERIFIER")
     print("banc : pas de diagnostic du pedalier (pedalier_diag, pedalier_exti12, pd2_journal absents) :",

@@ -51,6 +51,8 @@ OF SUCH DAMAGE.
 #include "couple_zero.h"
 #include "freq_diag.h"
 #include "moe_rotation.h"
+#include "base_temps.h"
+#include "rampe_moe.h"
 #endif
 #endif
 /* variables partagees avec les interruptions / le DMA : volatile obligatoire en -Os (EBiCS est compile en -O0,
@@ -332,6 +334,13 @@ freq_diag_t freq_diag;
 /* maintien de MOE en rotation (27/10, inc/moe_rotation.h) : ticks de TIMER1 (4 kHz reels) depuis le dernier front Hall,
    incrementes dans TIMER1_IRQHandler, remis a 0 dans TIMER2_IRQHandler (meme priorite preemptive : pas de course) */
 volatile uint16_t route_ticks_sans_hall = ROUTE_TICKS_SAT;
+/* base de temps reelle (lot A, 28/10, inc/base_temps.h) : ticks de TIMER1 (4 kHz reels) depuis le demarrage, incrementes
+   dans TIMER1_IRQHandler ; reg_ADC_processing avance ses compteurs de l'ecart reel entre deux appels */
+volatile uint32_t route_ticks_4k = 0;
+uint32_t route_bt_prec = 0;
+/* rampe de consigne au reveil de MOE (lot A, 28/10, inc/rampe_moe.h) : debut au dernier MOE = 1 */
+uint32_t route_rampe_debut = 0;
+uint8_t route_rampe_active = 0;
 void route_freq_ms(void)                          /* SysTick, 1 kHz */
 {
 	freq_diag_ms(&freq_diag, freq_n_isr, freq_n_trait, freq_n_boucle, ui_8_PWM_ON_Flag);
@@ -1502,6 +1511,7 @@ void TIMER1_IRQHandler(void) // regular ADC processing and common slow timing ta
 #ifdef ROUTE_BUILD
         freq_n_isr++;                            /* debordements de TIMER1 (E212) */
         if(route_ticks_sans_hall < ROUTE_TICKS_SAT) route_ticks_sans_hall++;   /* arret moteur (moe_rotation.h) */
+        route_ticks_4k++;                        /* base de temps reelle (base_temps.h) */
 #endif
 //        pulse_counter++;
 //        if(pulse_counter>1000)gpio_bit_set(GPIOB,GPIO_PIN_8);
@@ -1792,6 +1802,20 @@ void reg_ADC_processing(void)
 	if(MS.torque_on_crank>760&&PAS_counter<MP.PAS_timeout)torque_counter=0;//reset counter, if pressure on pedal and pedals rotating
 #endif
 	MS.range=Overrun_flag*100;//on/off button line
+#ifdef ROUTE_BUILD
+    {   /* lot A (28/10) : ecart reel en ticks de 4 kHz depuis l'appel precedent, borne (base_temps.h), au lieu d'un tick
+           par appel (1985 appels/s PWM actif) */
+    	uint16_t dt = bt_ecart(&route_bt_prec, route_ticks_4k);
+    	slow_loop_counter = bt_avance(slow_loop_counter, dt);
+    	torque_counter = bt_avance(torque_counter, dt);
+    	PAS_counter = bt_avance(PAS_counter, dt);
+    	Speed_counter = bt_avance(Speed_counter, dt);
+    	uint16_half_rotation_counter = bt_avance(uint16_half_rotation_counter, dt);
+    	offroadcounter = bt_avance(offroadcounter, dt);
+    	ui16_erps_counter = bt_avance(ui16_erps_counter, dt);
+    	Overrun_counter = bt_avance(Overrun_counter, dt);
+    }
+#else
     slow_loop_counter ++;
     if(torque_counter<64000)torque_counter++;
     if(PAS_counter<64000)PAS_counter++;
@@ -1800,6 +1824,7 @@ void reg_ADC_processing(void)
     if(offroadcounter<64000)offroadcounter++;
     if(ui16_erps_counter<64000)ui16_erps_counter++;
     if(Overrun_counter<64000)Overrun_counter++;
+#endif
     MS.i_q_setpoint = update_setpoint();
     if (torque_counter>4000&&!Overrun_flag){ //reset after one second without torque on the pedal
     	if (PAS_counter>MP.PAS_timeout){
@@ -2255,6 +2280,13 @@ static uint8_t pwm_enable_safe(void)
 		cap_trip = 0xFF; cap_n = 0; cap_seq++;
 		hj_idx = 0; hj_n = 0; hj_seq++; hj_gel = 0;
 		pt_idx = 0; pt_n = 0; pt_seq++; pt_gel = 0;
+	}
+#endif
+#ifdef ROUTE_BUILD
+	if(ok){   /* lot A (28/10) : debut de la rampe de consigne, plafond 0 avant MOE = 1 (rampe_moe.h) */
+		MS.i_q_setpoint=0;
+		route_rampe_debut=route_ticks_4k;
+		route_rampe_active=1;
 	}
 #endif
 	if(ok) TIMER_CCHP(TIMER0) |= (uint32_t)TIMER_CCHP_POEN;
@@ -2765,6 +2797,15 @@ uint16_t update_setpoint(void){
 #endif
 		pwm_disable();
 	}
+#ifdef ROUTE_BUILD
+	/* lot A (28/10, rampe_moe.h) : consigne transmise au PI plafonnee 100 ms apres MOE = 1 ; la decision de coupure ci-dessus
+	   et la consigne amont (E103) restent sur MS.i_q_setpoint_temp */
+	if(route_rampe_active){
+		uint32_t t = route_ticks_4k - route_rampe_debut;
+		if(t >= RAMPE_MOE_TICKS) route_rampe_active = 0;
+		return rampe_moe_applique(MS.i_q_setpoint_temp, t, MP.phase_current_max);
+	}
+#endif
 	return MS.i_q_setpoint_temp;
 
 }
