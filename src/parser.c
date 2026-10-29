@@ -111,6 +111,9 @@ void parse_MOparams(MotorParams_t* MP){
 	update_checksum();
 }
 
+#ifdef ROUTE_BUILD
+static const uint8_t route_profil_niveau[5] = ROUTE_PROFIL_NIVEAU;
+#endif
 void InitEEPROM(MotorParams_t* MP){
 	MP->TS_coeff=TS_COEF;
 	MP->MagicNumber=202;
@@ -134,7 +137,11 @@ void InitEEPROM(MotorParams_t* MP){
 	MP->decay_base =255;
 	for (k=0; k < 5; k++){ // assist_profile[5][6] : l'ancienne borne (6 x 7) ecrivait hors du tableau
 		for (l=0; l < 6; l++){
+#ifdef ROUTE_BUILD
+			MP->assist_profile[k][l]=route_profil_niveau[k];   /* loi type OSF (29/10), inc/config.h */
+#else
 			MP->assist_profile[k][l]=(k+1)*20;
+#endif
 		}
 	}
 	for (l=0; l < 6; l++){

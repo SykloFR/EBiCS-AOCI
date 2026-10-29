@@ -181,6 +181,9 @@
 #define SPEEDLIMIT 1500          // 15 km/h (x100) : plafond tant que la chaine ADC haute modulation n'est pas mesuree
 #define ROUTE_NIVEAU_MAX 6       // code assist_level (pas un nombre de niveaux) : 6 = niveau 3 de l'afficheur 5 niveaux
                                  // (codes 2, 4, 6, 8, 9 = niveaux 1 a 5) ; lot B2, 29/10 : niveaux 1 a 3 (avant 4)
+#define ROUTE_PROFIL_NIVEAU {31, 43, 63, 67, 110}   // loi type OSF (29/10, loi-type-osf-attendu-20261029.md) : profil plat
+                                 // par niveau 1 a 5, vise P_bat / P_pedale = 1,6 / 2,2 / 2,8 / 3,4 / 5,6 (Z8-OSF HYBRID),
+                                 // cale sur eta = 0,83 ; avant (k+1) x 20 = 20 / 40 / 60 / 80 / 100
 #define ROUTE_VARIANTE_REPLI 2   // octet 0x0803D800 vierge (0xFF, lu apres le flash route du 27/10) -> variante 2 mesuree
                                  // sur ce controleur (inc/variante.h) ; signale par le bit 4 de E203
 #endif

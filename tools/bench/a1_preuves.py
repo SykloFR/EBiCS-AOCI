@@ -89,6 +89,19 @@ ok_couple = (tq, czn, reglages, taille_cz) == ((5, 48, ["5"], [102]) if ROUTE el
 print("route : filtre 1/32 et zero sur 48 impulsions :" if ROUTE else "banc : filtre 1/16 inchange, pas de zero adaptatif :",
       "OK" if ok_couple else "A VERIFIER")
 
+section("Loi type OSF (29/10) : profil par niveau et plancher de cadence")
+m_prof = re.search(r"route_profil_niveau\[5\] = \{([^}]*)\}", pp_parser)
+profil = [int(x) for x in m_prof.group(1).split(",")] if m_prof else None
+plancher = "loi_osf_plancher(MS.i_q_setpoint_temp, MS.cadence)" in pp_main
+profil_ebics = "assist_profile[k][l]=(k+1)*20" in pp_parser
+print(f"   profil route {profil} ; profil EBiCS (k+1) x 20 present : {profil_ebics} ; plancher dans update_setpoint : {plancher}")
+if ROUTE:
+    print("route : profil 31 / 43 / 63 / 67 / 110 et plancher de cadence :",
+          "OK" if profil == [31, 43, 63, 67, 110] and plancher and not profil_ebics else "A VERIFIER")
+else:
+    print("banc : profil EBiCS et pas de plancher (inchange) :",
+          "OK" if profil is None and not plancher and profil_ebics else "A VERIFIER")
+
 section("Temperature controleur (29/10) : table NTC d'origine en route, T_NTC ailleurs")
 nm_t = run("arm-none-eabi-nm", ELF)
 a_main, t_main = [(int(l.split()[0], 16), int(l.split()[1], 16)) for l in run("arm-none-eabi-nm", "-S", ELF).splitlines()

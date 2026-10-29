@@ -49,6 +49,7 @@ OF SUCH DAMAGE.
 #include "pedalier_diag.h"
 #include "pedalier_pd2.h"
 #include "couple_zero.h"
+#include "loi_osf.h"
 #include "freq_diag.h"
 #include "moe_rotation.h"
 #include "base_temps.h"
@@ -2729,6 +2730,9 @@ uint16_t update_setpoint(void){
 
 					if(Backwards_counter<4){//normal ride mode, motor power only if pedals are not turned backwards
 						MS.i_q_setpoint_temp=(uint32_t)((float) (MP.TS_coeff*powf((float)MS.cadence,helper))*(MS.torque_filtered)*0.0005*interpolate_assistfactor());//factor 0.0005 from various constants
+#ifdef ROUTE_BUILD
+						MS.i_q_setpoint_temp=loi_osf_plancher(MS.i_q_setpoint_temp, MS.cadence);   /* voie couple de l'hybride OSF sous 40 tr/min (29/10, inc/loi_osf.h) */
+#endif
 						//limit setpoint to the max value according to the current setting.
 						if(MS.i_q_setpoint_temp>phase_current_max_scaled)MS.i_q_setpoint_temp = phase_current_max_scaled;
 						MS.i_q_setpoint_temp=map_rezi(MS.i_q_setpoint_temp, torque_counter, MP.PAS_timeout, MP.decay_base);
