@@ -738,7 +738,11 @@ int main(void)
 	PI_iq.limit_output = _U_MAX;
 	PI_iq.max_step=15;
 	PI_iq.shift=11;
+#ifdef ROUTE_BUILD
+	PI_iq.limit_i=(int16_t)_U_MAX;   /* 29/10 : integrale jusqu'a _U_MAX comme EBiCS d'origine ; 3/4 bridait u_q vers 1150 (erps ~230 a 36 V) */
+#else
 	PI_iq.limit_i=(int16_t)((_U_MAX * PI_LIMITE_I_NUM) / PI_LIMITE_I_DEN);   /* anti-windup 27/10 (pi_control.h) ; avant : _U_MAX */
+#endif
 
     //Check, if virtual EEPROM was ever written (or interrupted mid-program). If not, fill it with default values
 #ifdef BENCH_NO_EEPROM

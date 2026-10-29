@@ -56,6 +56,12 @@ socle = {"bride (limite - 2) -> (limite + 2)": "socle_bride(MS.i_q_setpoint_temp
          "niveau demande ecrit par l'afficheur": "route_niveau_demande=MS->assist_level" in pp_can}
 for k, v in socle.items():
     print(f"   socle (28/10) {k:38s} : {'present' if v else 'absent'}")
+plafond_iq = "PI_iq.limit_i=(int16_t)_U_MAX;" in pp_main
+print(f"   PI de i_q : integrale plafonnee a _U_MAX (29/10) : {'oui' if plafond_iq else 'non (3/4)'}")
+if ROUTE:
+    print("route : integrale du PI de i_q jusqu'a _U_MAX :", "OK" if plafond_iq else "A VERIFIER")
+else:
+    print("banc : integrale du PI de i_q a 3/4 (inchange) :", "OK" if not plafond_iq else "A VERIFIER")
 if ROUTE:
     print("route : socle de conformite present (bride, plafonds par niveau, timer L5, niveau demande) :",
           "OK" if all(socle.values()) else "A VERIFIER")
