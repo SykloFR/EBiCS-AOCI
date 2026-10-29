@@ -2,6 +2,8 @@
 Sert tools/bench/pilote_seance.html sur http://127.0.0.1:8770 (Web Bluetooth exige localhost) et capture la telemetrie
 de banc en ECOUTE SEULE (PCAN, meme decodage et meme CSV que bench_can_decode.py), avec les valeurs en direct pour la
 page et un journal horodate des etapes (<nom>-journal.json a cote du CSV). Aucune trame n'est emise sur le bus.
+Les trames hors telemetrie (afficheur 0x13F8xxxx / 0x13FFxxxx, controleur 0x12F8xxxx / 0x12FFxxxx, batterie...) sont
+gardees brutes dans <nom>-afficheur.csv (diag afficheur fige du 29/10, test T3), avec un bilan par identifiant.
 Usage : python tools/bench/pilote_seance.py [--port 8770] [--dossier DOSSIER] [--canal PCAN_USBBUS1]"""
 import argparse, collections, csv, json, os, re, sys, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -79,15 +81,32 @@ class Capture:
     def _boucle(self):
         import can
         stats = collections.defaultdict(lambda: {"n": 0, "trous": 0, "seq": None, "t0": None, "t1": None})
+        autres = collections.defaultdict(lambda: {"n": 0, "t0": None, "t1": None, "d": b""})   # trames hors telemetrie
         chemin = os.path.join(self.dossier, self.nom + ".csv")
         try:
             with open(chemin, "w", newline="", encoding="utf-8") as fcsv, \
+                    open(os.path.join(self.dossier, self.nom + "-afficheur.csv"), "w", newline="", encoding="utf-8") as faff, \
                     can.Bus(interface="pcan", channel=self.canal, bitrate=250000, state=can.BusState.PASSIVE) as bus:
                 w = csv.writer(fcsv)
                 w.writerow(["t", "trame", "seq", "champs"])
+                wa = csv.writer(faff)
+                wa.writerow(["t", "id", "source", "cible", "op", "code", "dlc", "donnees"])
                 while not self.arret.is_set() and time.time() - self.t0 < self.duree:
                     m = bus.recv(timeout=0.1)
-                    if m is None or not m.is_extended_id or m.arbitration_id >> 16 != 0x1EE8 or len(m.data) < 1:
+                    if m is None:
+                        continue
+                    if not m.is_extended_id or m.arbitration_id >> 16 != 0x1EE8:   # afficheur, controleur, batterie : brut
+                        i = m.arbitration_id
+                        e = m.is_extended_id
+                        wa.writerow([f"{m.timestamp:.4f}", f"{i:08X}" if e else f"{i:03X}",
+                                     f"{i >> 24 & 0x1F:02X}" if e else "", f"{i >> 19 & 0x1F:02X}" if e else "",
+                                     i >> 16 & 0x07 if e else "", f"{i & 0xFFFF:04X}" if e else "", m.dlc, bytes(m.data).hex(" ")])
+                        a = autres[(e, i)]
+                        a["n"] += 1
+                        a["t0"] = a["t0"] if a["t0"] is not None else m.timestamp
+                        a["t1"], a["d"] = m.timestamp, bytes(m.data)
+                        continue
+                    if len(m.data) < 1:
                         continue
                     cle = m.arbitration_id & 0xFFFF
                     s = stats[cle]
@@ -116,6 +135,11 @@ class Capture:
                 hz = (s["n"] - 1) / (s["t1"] - s["t0"]) if s["t1"] > s["t0"] else 0
                 f.write(f"  E{cle & 0xFFF:03X} : {s['n']:5d} trames, {hz:6.1f} Hz (attendu {1000 / PERIODE[cle]:.0f}), "
                         f"trous {s['trous']}\n")
+            f.write(f"trames hors telemetrie ({self.nom}-afficheur.csv) : {sum(a['n'] for a in autres.values())}\n")
+            for (e, i), a in sorted(autres.items()):
+                per = (a["t1"] - a["t0"]) / (a["n"] - 1) * 1000 if a["n"] > 1 and a["t1"] > a["t0"] else 0
+                f.write(f"  {i:08X} : {a['n']:6d} trames, periode {per:7.1f} ms, derniere {a['d'].hex(' ')}\n" if e else
+                        f"  {i:03X} (standard) : {a['n']:6d} trames, derniere {a['d'].hex(' ')}\n")
         with self.verrou:
             self.journal.append({"t_pc": round(time.time() - self.t0, 3), "t_trame": self.t_trame,
                                  "heure": time.strftime("%H:%M:%S"), "texte": "fin de capture"})
