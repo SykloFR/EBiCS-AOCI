@@ -86,7 +86,7 @@
       <h2>Contrôleur en direct (CAN, écoute seule)</h2>
       <div class="grille">
         <div class="tuile" id="tV"><div class="l">vitesse (km/h)</div><div class="v" id="vV">–</div></div>
-        <div class="tuile"><div class="l">cadence (tr/min)</div><div class="v" id="vCad">–</div></div>
+        <div class="tuile"><div class="l">cadence (tr/min, lissée 1 s)</div><div class="v" id="vCad">–</div></div>
         <div class="tuile"><div class="l">erps</div><div class="v" id="vErps">–</div></div>
         <div class="tuile"><div class="l">couple (mV) / zéro</div><div class="v" id="vCouple">–</div></div>
         <div class="tuile" id="tAmont"><div class="l">consigne amont (pts)</div><div class="v" id="vAmont">–</div></div>
@@ -302,7 +302,7 @@ function terminer(raison, couperCapture) {
 }
 
 /* ---------------------------------------------------------------- valeurs en direct et alarmes ---------------- */
-let alarmeCourante = "";
+let alarmeCourante = "", cadLisse = null;
 function fx(v, d) { return v === null || v === undefined ? "–" : (typeof v === "number" && d !== undefined ? v.toFixed(d) : v); }
 async function sonder() {
   try {
@@ -313,7 +313,12 @@ async function sonder() {
     $("bCapture").className = "badge " + (e.erreur ? "mal" : (e.actif ? "ok" : ""));
     const L = e.live;
     if (L.git) { $("bFirm").textContent = "firmware " + L.git; }
-    $("vV").textContent = fx(L.vitesse, 2); $("vCad").textContent = fx(L.cadence); $("vErps").textContent = fx(L.erps);
+    /* cadence affichee lissee (moyenne glissante exponentielle, ~1 s a 4 Hz) : la valeur brute change a chaque impulsion ;
+       les captures gardent la valeur brute */
+    if (L.cadence === null) cadLisse = null;
+    else cadLisse = cadLisse === null ? L.cadence : cadLisse + 0.25 * (L.cadence - cadLisse);
+    $("vV").textContent = fx(L.vitesse, 2); $("vCad").textContent = cadLisse === null ? "–" : Math.round(cadLisse);
+    $("vErps").textContent = fx(L.erps);
     $("vCouple").textContent = fx(L.couple_mV) + " / " + fx(L.zero_mV);
     $("vAmont").textContent = fx(L.iq_amont); $("vCons").textContent = fx(L.iq_cons); $("vIq").textContent = fx(L.iq);
     $("vMoe").textContent = L.moe === null ? "–" : (L.moe ? "actif" : "coupé");
