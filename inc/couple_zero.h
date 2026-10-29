@@ -1,15 +1,22 @@
 /*
  * Zero de couple adaptatif (build route, 27/10/2026), comme le firmware d'origine de l'AOCI (analyse-commande-moteur.md
- * 6.1) : une valeur par impulsion du pedalier dans un tampon des 20 dernieres (fenetre de validite 300 a 4900 mV), zero =
- * moyenne des 2e et 3e plus petites. 750 mV (seuil fixe d'EBiCS) tant que 20 valeurs ne sont pas reunies.
- * Fonction pure, testee par tools/test_couple_zero.c.
+ * 6.1) : une valeur par impulsion du pedalier dans un tampon des CZ_N dernieres (fenetre de validite 300 a 4900 mV),
+ * zero = moyenne des 2e et 3e plus petites. 750 mV (seuil fixe d'EBiCS) tant que CZ_N valeurs ne sont pas reunies.
+ * CZ_N : 48 en route (un tour, 29/10), 20 ailleurs (origine).
+ * Fonction pure, testee par tools/test_couple_zero.c et tools/test_chaine_couple.c.
  */
 #ifndef COUPLE_ZERO_H_
 #define COUPLE_ZERO_H_
 
 #include <stdint.h>
 
+#ifdef ROUTE_BUILD
+#define CZ_N        48u      /* un tour de pedalier a 48 impulsions (29/10, correctif-chaine-couple-attendu-20261029.md) :
+                                20 = 150 deg, moins qu'une poussee ; le zero montait avec l'effort (B1.3 : 803 mV en
+                                moyenne, jusqu'a 992) */
+#else
 #define CZ_N        20u
+#endif
 #define CZ_INIT     750u     /* seuil fixe d'EBiCS, garde pendant l'amorce */
 #define CZ_MIN_MV   300
 #define CZ_MAX_MV   4900

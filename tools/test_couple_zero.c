@@ -1,7 +1,8 @@
 /*
  * Test hote du zero de couple adaptatif (inc/couple_zero.h, l'en-tete reel compile dans le firmware).
  *   gcc -std=gnu99 -Wall -Wextra -Iinc tools/test_couple_zero.c -o test_couple_zero.exe -lm
- * Regle (origine) : zero = (2e + 3e plus petites des 20 dernieres) / 2, 750 pendant l'amorce, hors 300-4900 ignore.
+ *   (et avec -DROUTE_BUILD : fenetre CZ_N = 48 au lieu de 20, 29/10)
+ * Regle (origine) : zero = (2e + 3e plus petites des CZ_N dernieres) / 2, 750 pendant l'amorce, hors 300-4900 ignore.
  * Cas chiffres avec le filtre EBiCS par impulsion (TQFILTER 4) : effort constant, coup de pedale, rotation sans effort.
  */
 #include <math.h>
@@ -30,13 +31,14 @@ static int filtre(couple_zero_t *c, const int *mv, int n, int zero_fixe, int *ze
 
 int main(void)
 {
-    /* 1. amorce : 750 tant que n < 20, quelle que soit la valeur */
+    printf("CZ_N = %u\n", CZ_N);
+    /* 1. amorce : 750 tant que n < CZ_N, quelle que soit la valeur */
     {
         couple_zero_t c = COUPLE_ZERO_INIT;
         int ok = 1;
-        for (int i = 0; i < 19; i++) if (couple_zero_ajoute(&c, 1000 + i) != 750) ok = 0;
-        CHECK(ok && c.n == 19, "amorce : n %u", c.n);
-        CHECK(couple_zero_ajoute(&c, 1019) == (1001 + 1002) / 2, "20e valeur : zero %u", c.zero);
+        for (int i = 0; i < (int)CZ_N - 1; i++) if (couple_zero_ajoute(&c, 1000 + i) != 750) ok = 0;
+        CHECK(ok && c.n == CZ_N - 1, "amorce : n %u", c.n);
+        CHECK(couple_zero_ajoute(&c, 1000 + (int)CZ_N - 1) == (1001 + 1002) / 2, "CZ_N-ieme valeur : zero %u", c.zero);
     }
 
     /* 2. regle exacte contre un tri de reference, suites aleatoires, avec valeurs hors fenetre */

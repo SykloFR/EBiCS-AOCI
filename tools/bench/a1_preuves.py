@@ -36,7 +36,7 @@ cflags = ["-mcpu=cortex-m3", "-mthumb", "-mfloat-abi=soft", "-DGD32F10X_HD", "-D
 macros = run("arm-none-eabi-gcc", *cflags, "-dM", "-E", "src/main.c")
 want = r"^#define (BENCH_\w+|PH_CURRENT_MAX|PH_CURRENT_TRIP|PH_TRIP_PERIODS|BATTERYCURRENT_MAX|VOLTAGE_MIN|" \
        r"TEMP_SENSOR_REQUIRED|U_MAX_BENCH|_U_MAX|CURRENT_SIGN|_T|DYNAMIC_ADC_THRESHOLD|REVERSE|LEGALFLAG|GEAR_RATIO|" \
-       r"CAL_PONT_\w+|VARIANTE_ADDR|PH_COUNTS_PER_A_\w+|TRIGGER_DEFAULT)\b.*"
+       r"CAL_PONT_\w+|VARIANTE_ADDR|PH_COUNTS_PER_A_\w+|TRIGGER_DEFAULT|TQFILTER|CZ_N)\b.*"
 for line in sorted(l for l in macros.splitlines() if re.match(want, l)):
     print(line)
 
@@ -75,6 +75,18 @@ if ROUTE:
           "OK" if not any(chemins.values()) else "A VERIFIER")
 else:
     print("banc : les quatre chemins restent presents (banc inchange) :", "OK" if all(chemins.values()) else "A VERIFIER")
+
+section("Chaine de couple (29/10) : TQFILTER et fenetre du zero adaptatif CZ_N")
+tq = re.search(r"^#define TQFILTER (\d+)", macros, re.M)
+czn = re.search(r"^#define CZ_N (\d+)u", macros, re.M)
+tq, czn = (int(tq.group(1)) if tq else None), (int(czn.group(1)) if czn else None)
+pp_parser = run("arm-none-eabi-gcc", *cflags, "-E", "-P", "src/parser.c")
+reglages = sorted(set(re.findall(r"assist_settings\[(?:k\+1|5)\]\[2\]=(\d+)", pp_parser)))
+taille_cz = [int(l.split()[1], 16) for l in run("arm-none-eabi-nm", "-S", ELF).splitlines() if l.endswith(" couple_zero")]
+print(f"   TQFILTER {tq} ; CZ_N {czn} ; parser.c : assist_settings[k][2] = {reglages} ; couple_zero {taille_cz} octets")
+ok_couple = (tq, czn, reglages, taille_cz) == ((5, 48, ["5"], [102]) if ROUTE else (4, 20, ["4"], [46]))
+print("route : filtre 1/32 et zero sur 48 impulsions :" if ROUTE else "banc : filtre 1/16 et zero sur 20 (inchanges) :",
+      "OK" if ok_couple else "A VERIFIER")
 
 section("Temperature controleur (29/10) : table NTC d'origine en route, T_NTC ailleurs")
 nm_t = run("arm-none-eabi-nm", ELF)

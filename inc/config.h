@@ -196,7 +196,12 @@
 #define TS_COEF 4
 #define TS_MODE
 #define TQONAD1
+#ifdef ROUTE_BUILD
+#define TQFILTER 5               // IIR 1/32 par impulsion PD2 = 2/3 de tour a 48 impulsions par tour, la constante prevue par
+                                 // EBiCS pour ~24 impulsions (29/10, correctif-chaine-couple-attendu-20261029.md) ; avant 4
+#else
 #define TQFILTER 4
+#endif
 
 //---------------------------------------------------------------------
 //Display settings
