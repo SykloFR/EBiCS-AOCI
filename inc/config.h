@@ -169,9 +169,9 @@
    sauf PH_CURRENT_MAX ramene a 30 pts. _U_MAX reste U_MAX_BENCH (1500) : chaine ADC validee seulement CCR <= 1738. */
 #ifdef ROUTE_BUILD
 #undef PH_CURRENT_MAX
-#define PH_CURRENT_MAX 45        // ~14,3 A de phase (lot B1, 29/10 : palier du niveau 2 ; avant 30)
+#define PH_CURRENT_MAX 60        // ~19,1 A de phase (lot B2, 29/10 : palier du niveau 3, valeur de la config d'origine ; avant 45)
 #undef PH_CURRENT_TRIP
-#define PH_CURRENT_TRIP 120      // 38 A : trip de harnais, 2,7 x le plafond de phase du niveau 2 (lot B1, 29/10),
+#define PH_CURRENT_TRIP 150      // 47,8 A : trip de harnais, 2,5 x le plafond de phase du niveau 3 (lot B2, 29/10 ; avant 120),
                                  // A REMONTER A 377 (production, 120 A) AVANT TOUT BUILD CLIENT
 #undef BATTERYCURRENT_MAX
 #define BATTERYCURRENT_MAX 15000 // mA : production (firmware AOCI 36V 15A)
@@ -179,8 +179,8 @@
 #define VOLTAGE_MIN 1773         // production : 30,0 V
 #undef SPEEDLIMIT
 #define SPEEDLIMIT 1500          // 15 km/h (x100) : plafond tant que la chaine ADC haute modulation n'est pas mesuree
-#define ROUTE_NIVEAU_MAX 4       // code assist_level (pas un nombre de niveaux) : 4 = niveau 2 de l'afficheur 5 niveaux
-                                 // (codes 2, 4, 6, 8, 9 = niveaux 1 a 5) ; lot B1, 29/10 : niveaux 1 et 2 (avant 2)
+#define ROUTE_NIVEAU_MAX 6       // code assist_level (pas un nombre de niveaux) : 6 = niveau 3 de l'afficheur 5 niveaux
+                                 // (codes 2, 4, 6, 8, 9 = niveaux 1 a 5) ; lot B2, 29/10 : niveaux 1 a 3 (avant 4)
 #define ROUTE_VARIANTE_REPLI 2   // octet 0x0803D800 vierge (0xFF, lu apres le flash route du 27/10) -> variante 2 mesuree
                                  // sur ce controleur (inc/variante.h) ; signale par le bit 4 de E203
 #endif

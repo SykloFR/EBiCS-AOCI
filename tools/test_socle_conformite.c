@@ -39,6 +39,9 @@ int main(void)
         CHECK(socle_phase_niveau_pts(n, socle_ibat_niveau_mA(n, IBAT_MAX), PTS_PAR_A_X100, 30) == (ph[n] > 30 ? 30 : ph[n]),
               "phase niveau %u ecretee a 30", n);
         CHECK(socle_phase_niveau_pts(n, socle_ibat_niveau_mA(n, IBAT_MAX), PTS_PAR_A_X100, 120) == ph[n], "niveau %u sous 120", n);
+        /* lot B2 (29/10) : plafond 60, niveaux 1 a 3 = 29 / 49 / 59 non ecretes, 4 et 5 ecretes a 60 */
+        CHECK(socle_phase_niveau_pts(n, socle_ibat_niveau_mA(n, IBAT_MAX), PTS_PAR_A_X100, 60) == (ph[n] > 60 ? 60 : ph[n]),
+              "phase niveau %u ecretee a 60 (lot B2)", n);
     }
 
     /* 3. codes de niveau <-> indices (level_to_array_element de main.c) */
