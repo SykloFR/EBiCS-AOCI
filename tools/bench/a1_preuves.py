@@ -57,6 +57,10 @@ socle = {"bride (limite - 2) -> (limite + 2)": "socle_bride(MS.i_q_setpoint_temp
 for k, v in socle.items():
     print(f"   socle (28/10) {k:38s} : {'present' if v else 'absent'}")
 plafond_iq = "PI_iq.limit_i=(int16_t)_U_MAX;" in pp_main
+img_pi = open(IMG, "rb").read()
+mot_34, mot_max = struct.pack("<I", (1500 << 16) | 1125), struct.pack("<I", (1500 << 16) | 1500)
+print(f"   mots limit_i | limit_output << 16 dans l'image : 1125|1500 x{img_pi.count(mot_34)}, 1500|1500 x{img_pi.count(mot_max)}")
+plafond_iq = plafond_iq and (img_pi.count(mot_max) >= 1 if ROUTE else True)
 print(f"   PI de i_q : integrale plafonnee a _U_MAX (29/10) : {'oui' if plafond_iq else 'non (3/4)'}")
 if ROUTE:
     print("route : integrale du PI de i_q jusqu'a _U_MAX :", "OK" if plafond_iq else "A VERIFIER")
