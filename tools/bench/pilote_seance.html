@@ -193,6 +193,19 @@ const PROTOCOLES = {
       att: "i_q suit la consigne" },
     { id: "ARRET", d: 30, bpm: null, txt: "Arrête de pédaler, pieds relâchés. Touche le boîtier : chaud ?",
       att: "consigne 0, pont coupé quand le moteur s'arrête" } ] },
+  /* lot B1 (29/10), lot-B1-niveau2-attendu-20261029.md, B1.3 : niveau 2, 10 min sous la limite de tension (~60 tr/min) ;
+     criteres Ibat <= 9,0 A, |i_q| <= 45, aucun trip ; alarme i_q au-dessus de 47 (plafond 45 + bruit) */
+  b13: { titre: "B1.3 : niveau 2, endurance 10 min à 50 tr/min", nom: "lotB1-B1.3-niveau2-3dee9cc", iqMax: 47, phases: [
+    { id: "E1", d: 150, bpm: 50, txt: "Niveau 2 sur l'afficheur. Pédale : un tour de pédalier à chaque bip (50 tr/min), appui normal.",
+      att: "i_q suit la consigne, Ibat ≤ 9,0 A" },
+    { id: "E2", d: 150, bpm: 50, txt: "Continue à 50 tr/min. Appuie franchement par moments (5 à 10 s). Touche le boîtier.",
+      att: "i_q ≤ 45 pts, Ibat ≤ 9,0 A, aucun défaut" },
+    { id: "E3", d: 150, bpm: 50, txt: "Continue à 50 tr/min, appuis francs par moments.",
+      att: "i_q ≤ 45 pts ; température qui monte sans à-coup" },
+    { id: "E4", d: 150, bpm: 50, txt: "Continue à 50 tr/min. Touche le boîtier : chaud ? (arrêt si trop chaud pour la main)",
+      att: "T contrôleur < 65 °C, Ibat ≤ 9,0 A" },
+    { id: "ARRET", d: 30, bpm: null, txt: "Arrête de pédaler, pieds relâchés. Ne touche pas à l'afficheur.",
+      att: "consigne 0, pont coupé quand le moteur s'arrête" } ] },
   libre: { titre: "Capture libre (durée réglable)", nom: "capture-libre-e013e55", libre: true, phases: [
     { id: "L", d: 60, bpm: null, txt: "Capture en cours.", att: "" } ] }
 };
@@ -255,7 +268,7 @@ function remplirListe() {
 for (const [k, p] of Object.entries(PROTOCOLES)) $("proto").add(new Option(p.titre, k));
 $("proto").onchange = remplirListe; $("palier").onchange = remplirListe; $("image").onchange = remplirListe; remplirListe();
 /* seuil d'alarme i_q : 1,5 × le palier pendant un essai batterie (critère d'arrêt), sinon 30 pts */
-function seuilIq() { return run && run.p.palier ? 1.5 * (Number($("palier").value) || 30) : 30; }
+function seuilIq() { return run && run.p.iqMax ? run.p.iqMax : (run && run.p.palier ? 1.5 * (Number($("palier").value) || 30) : 30); }
 
 $("btnGo").onclick = async () => {
   audio();
