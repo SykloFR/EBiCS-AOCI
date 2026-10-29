@@ -84,8 +84,9 @@ pp_parser = run("arm-none-eabi-gcc", *cflags, "-E", "-P", "src/parser.c")
 reglages = sorted(set(re.findall(r"assist_settings\[(?:k\+1|5)\]\[2\]=(\d+)", pp_parser)))
 taille_cz = [int(l.split()[1], 16) for l in run("arm-none-eabi-nm", "-S", ELF).splitlines() if l.endswith(" couple_zero")]
 print(f"   TQFILTER {tq} ; CZ_N {czn} ; parser.c : assist_settings[k][2] = {reglages} ; couple_zero {taille_cz} octets")
-ok_couple = (tq, czn, reglages, taille_cz) == ((5, 48, ["5"], [102]) if ROUTE else (4, 20, ["4"], [46]))
-print("route : filtre 1/32 et zero sur 48 impulsions :" if ROUTE else "banc : filtre 1/16 et zero sur 20 (inchanges) :",
+# le zero adaptatif n'existe qu'en route (main.c, bloc ROUTE_BUILD des includes) : absent du banc
+ok_couple = (tq, czn, reglages, taille_cz) == ((5, 48, ["5"], [102]) if ROUTE else (4, None, ["4"], []))
+print("route : filtre 1/32 et zero sur 48 impulsions :" if ROUTE else "banc : filtre 1/16 inchange, pas de zero adaptatif :",
       "OK" if ok_couple else "A VERIFIER")
 
 section("Temperature controleur (29/10) : table NTC d'origine en route, T_NTC ailleurs")
