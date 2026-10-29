@@ -224,6 +224,16 @@ const PROTOCOLES = {
       att: "pas de pointe > 120 pts, défaut 0" },
     { id: "ARRET", d: 20, bpm: null, res: 10, txt: "Arrête de pédaler, pieds relâchés. Touche le boîtier : chaud ?",
       att: "consigne 0, pont coupé quand le moteur s'arrête" } ] },
+  /* loi type OSF (29/10), loi-type-osf-attendu-20261029.md : calage de l'echelle du capteur de couple SANS assistance
+     (niveau 0) ; k = P_roue / (cadence x couple filtre), sans hypothese sur le rendement moteur */
+  calage: { titre: "Calage couple : niveau 0, 2 paliers (2 min)", nom: "calage-couple-niveau0", iqMax: 10, phases: [
+    { id: "R0", d: 10, bpm: null, res: 20, txt: "Afficheur au niveau 0 (pas d'assistance). Repos.",
+      att: "niveau 0, consigne 0" },
+    { id: "C20", d: 45, bpm: 45, res: 20, txt: "Pédale à 45 tr/min (un tour par bip), effort régulier.",
+      att: "consigne 0, i_q 0 ; puissance home trainer stable" },
+    { id: "C40", d: 45, bpm: 45, res: 40, txt: "Résistance 40 %. Toujours 45 tr/min, effort régulier.",
+      att: "consigne 0 ; puissance home trainer plus haute" },
+    { id: "ARRET", d: 15, bpm: null, res: 10, txt: "Arrête de pédaler.", att: "" } ] },
   libre: { titre: "Capture libre (durée réglable)", nom: "capture-libre-e013e55", libre: true, phases: [
     { id: "L", d: 60, bpm: null, txt: "Capture en cours.", att: "" } ] }
 };
