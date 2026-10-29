@@ -54,6 +54,7 @@ OF SUCH DAMAGE.
 #include "base_temps.h"
 #include "rampe_moe.h"
 #include "socle_conformite.h"
+#include "ntc_aoci.h"
 #endif
 #endif
 /* variables partagees avec les interruptions / le DMA : volatile obligatoire en -Os (EBiCS est compile en -O0,
@@ -893,7 +894,11 @@ int main(void)
             	if(pollnumber>2)pollnumber=0;
             	sendCAN_Poll(&MP,&MS,Poll_commands[pollnumber]);
             	pollnumber++;
+#ifdef ROUTE_BUILD
+            	MS.int_Temperature = ntc_aoci_c(adc_value[6]);   /* table NTC d'origine AOCI (29/10, inc/ntc_aoci.h) */
+#else
             	MS.int_Temperature = T_NTC(adc_value[6]);
+#endif
             	MS.SOC = calculate_SOC(MS.Voltage, (uint8_t) ((float)MP.system_voltage/3.6));
             	//toggle speed pin
             	//gpio_bit_write(GPIOB, GPIO_PIN_0,(bit_status)(1-gpio_input_bit_get(GPIOB, GPIO_PIN_0)));

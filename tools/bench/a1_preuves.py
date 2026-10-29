@@ -67,6 +67,21 @@ if ROUTE:
 else:
     print("banc : les quatre chemins restent presents (banc inchange) :", "OK" if all(chemins.values()) else "A VERIFIER")
 
+section("Temperature controleur (29/10) : table NTC d'origine en route, T_NTC ailleurs")
+nm_t = run("arm-none-eabi-nm", ELF)
+a_main, t_main = [(int(l.split()[0], 16), int(l.split()[1], 16)) for l in run("arm-none-eabi-nm", "-S", ELF).splitlines()
+                  if l.endswith(" main")][0]
+dis_main = run("arm-none-eabi-objdump", "-d", "--no-show-raw-insn", f"--start-address={a_main:#x}",
+               f"--stop-address={a_main + t_main:#x}", ELF)
+table = " ntc_aoci_table" in nm_t
+appel_tntc = "<T_NTC>" in dis_main
+print(f"   ntc_aoci_table en flash : {'oui' if table else 'non'} ; main appelle T_NTC : {'oui' if appel_tntc else 'non'}")
+if ROUTE:
+    print("route : temperature par la table d'origine (table presente, T_NTC non appelee par main) :",
+          "OK" if table and not appel_tntc else "A VERIFIER")
+else:
+    print("banc : T_NTC inchangee (appelee par main, pas de table) :", "OK" if appel_tntc and not table else "A VERIFIER")
+
 section("Symboles du build banc (nm)")
 nm = run("arm-none-eabi-nm", "-S", "--size-sort", ELF)
 syms = {}
