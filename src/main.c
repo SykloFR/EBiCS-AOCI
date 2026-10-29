@@ -56,6 +56,7 @@ OF SUCH DAMAGE.
 #include "rampe_moe.h"
 #include "socle_conformite.h"
 #include "ntc_aoci.h"
+#include "afficheur_aoci.h"      /* afficheur (29/10) : extinction propre, trames d'etat */
 #endif
 #endif
 /* variables partagees avec les interruptions / le DMA : volatile obligatoire en -Os (EBiCS est compile en -O0,
@@ -355,6 +356,12 @@ void route_freq_ms(void)                          /* SysTick, 1 kHz */
 	freq_diag_ms(&freq_diag, freq_n_isr, freq_n_trait, freq_n_boucle, ui_8_PWM_ON_Flag);
 }
 volatile uint16_t pedalier_exti12 = 0;
+/* afficheur (29/10, inc/afficheur_aoci.h, correctif-afficheur-attendu-20261029.md) : extinction par appui long armee apres
+   un relachement vu, 0x12F83204 = 00 pendant 500 ms puis coupure PB5 / PB4 / PB3, etat eteint verrouille (MOE refuse),
+   rallumage par le bouton si le MCU tourne encore ; trames d'etat de l'origine envoyees par sendCAN_Etat (CAN_Display.c) */
+ext_t route_ext;
+extern aff_cal_t route_aff_cal;
+void sendCAN_Etat(MotorState_t* MS, uint8_t coupe, uint8_t extinction);
 #endif
 uint8_t bench_ph_max = PH_CURRENT_MAX, bench_walk_max = BENCH_WALK_ILIM_MAX;
 /* PORTE 4, correctif F4 (voir inc/f4_mode_commun.h) : voies lisibles pour la PROCHAINE conversion injectee, tenu par le code
@@ -802,11 +809,16 @@ int main(void)
 
     fwdgt_config(500, FWDGT_PSC_DIV16);
     fwdgt_enable(); /* REVUE-PUISSANCE P5 : le chien de garde demarre ici ; rechargement uniquement dans la boucle principale */
+#ifdef ROUTE_BUILD
+    ext_init(&route_ext, bench_ms);              /* afficheur (29/10) : appui long arme apres un relachement vu */
+    aff_cal_init(&route_aff_cal, bench_ms);      /* trames d'etat aux instants d'origine */
+#endif
 
     while (1){
     	fwdgt_counter_reload();
 #ifdef ROUTE_BUILD
     	freq_n_boucle++;                         /* tours de boucle (E212) */
+    	sendCAN_Etat(&MS, ext_coupe(&route_ext), route_ext.etat == EXT_EXTINCTION);   /* afficheur (29/10), avant la telemetrie */
 #endif
 #ifdef BENCH_BUILD
     	bench_can_poll();                        /* une trame de télémétrie au plus par tour, jamais bloquant */
@@ -896,9 +908,15 @@ int main(void)
 //            	}
             	p++;
 
+#ifdef ROUTE_BUILD
+            	if(!ext_coupe(&route_ext)){              /* afficheur (29/10) : plus de trames periodiques pendant l'extinction */
+#endif
             	if(pollnumber>2)pollnumber=0;
             	sendCAN_Poll(&MP,&MS,Poll_commands[pollnumber]);
             	pollnumber++;
+#ifdef ROUTE_BUILD
+            	}
+#endif
 #ifdef ROUTE_BUILD
             	MS.int_Temperature = ntc_aoci_c(adc_value[6]);   /* table NTC d'origine AOCI (29/10, inc/ntc_aoci.h) */
 #else
@@ -909,7 +927,11 @@ int main(void)
             	//gpio_bit_write(GPIOB, GPIO_PIN_0,(bit_status)(1-gpio_input_bit_get(GPIOB, GPIO_PIN_0)));
             	if(Speed_counter>20000) MS.Speedx100=0;
             	/* PORTE 4 : calibration reportee (roue en mouvement au demarrage) : faite des que la roue est arretee, pont coupe */
+#ifdef ROUTE_BUILD
+            	if(!offsets_valides && !safety_is_latched() && !ui_8_PWM_ON_Flag && roue_arretee() && !ext_bloque(&route_ext, bench_ms)){
+#else
             	if(!offsets_valides && !safety_is_latched() && !ui_8_PWM_ON_Flag && roue_arretee()){
+#endif
             		fwdgt_counter_reload();
             		if(calibrate_current_offsets()) offsets_valides = 1;
             		else safety_fault(FAULT_OFFSET);
@@ -917,6 +939,30 @@ int main(void)
             	}
 				slow_loop_counter = 0;
 
+#ifdef ROUTE_BUILD
+				/* afficheur (29/10, inc/afficheur_aoci.h) : touche marche / arret (adc_value[5] < 2800, ~2400 ; « bas » ~3300) */
+				switch(ext_pas(&route_ext, bench_ms, adc_value[5]<2800)){
+				case EXT_DEBUT_EXTINCTION:                 /* MOE = 0 tout de suite, puis 0x12F83204 = 00 pendant 500 ms */
+					pwm_disable();
+					aff_cal_debut_extinction(&route_aff_cal);
+					break;
+				case EXT_COUPER_ALIM:                      /* MOE = 0, puis afficheur, DC/DC et 12 V coupes */
+					pwm_disable();
+					GPIO_BC(GPIOB) = GPIO_PIN_5;
+					GPIO_BC(GPIOB) = GPIO_PIN_4;
+					GPIO_BC(GPIOB) = GPIO_PIN_3;
+					break;
+				case EXT_RALLUMER:                         /* MCU encore alimente (cas R2) : comme au demarrage (gpio_config) */
+					GPIO_BOP(GPIOB) = GPIO_PIN_4;
+					GPIO_BOP(GPIOB) = GPIO_PIN_3;
+					GPIO_BOP(GPIOB) = GPIO_PIN_5;
+					offsets_valides = 0;                   /* offsets refaits roue arretee, apres le delai du 12 V */
+					aff_cal_init(&route_aff_cal, bench_ms);
+					break;
+				default:
+					break;
+				}
+#else
 				if(adc_value[5]<2800)shutoffcounter++; //raw value is 4095 without button pressed, about 3300 with "down" button pressed and about 2400 with on/off button pressed.
 				else shutoffcounter=0;
 				if(shutoffcounter>50){
@@ -925,6 +971,7 @@ int main(void)
 				    GPIO_BC(GPIOB) = GPIO_PIN_5; // Display off
 				    //GPIO_BC(GPIOB) = GPIO_PIN_6; // DC/DC off
 				}
+#endif
 
             }//end slow loop
 
@@ -2306,6 +2353,9 @@ static uint8_t pwm_enable_safe(void)
 	timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_2,_T>>1);
 	__disable_irq();
 	ok = !safety_is_latched() && offsets_valides;     /* PORTE 4 : jamais MOE sans offsets calibres roue arretee */
+#ifdef ROUTE_BUILD
+	if(ext_bloque(&route_ext, bench_ms)) ok = 0;      /* afficheur (29/10) : extinction, eteint, 500 ms apres un rallumage */
+#endif
 #ifdef BENCH_BUILD
 	if(ok){
 		/* F3 : CHCTL2 = 0, aucune sortie validee : repos OSSR, hauts bloques (CHxP = 0), bas passants (CHxNP = 0), comme

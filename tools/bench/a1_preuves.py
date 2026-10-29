@@ -412,6 +412,62 @@ else:
     print("PAS_processing absent (inline) : A VERIFIER")
 print("regle F4 des entrees du trip : prouvee par le test hote tools/test_f4_mode_commun.c (en-tete reel)")
 
+section("Afficheur (29/10) : trames d'etat (C2), extinction propre (C1), releve E213 (C3), route seulement")
+aff_syms = ("route_ext", "route_aff_rx", "route_aff_cal", "sendCAN_Etat")
+print("   symboles :", {x: ("present" if x in syms else "absent") for x in aff_syms})
+table_codes = struct.pack("<7H", 0x3202, 0x3206, 0x3207, 0x3204, 0x1200, 0x3000, 0x3204)   # codes de aff_id()
+n_table, n_e213 = img.count(table_codes), img.count(bytes([0xE2, 0x13, 0xE8, 0x03]))      # E213 a 1000 ms (trames[])
+print(f"   table des codes 3202/3206/3207/3204/1200/3000 dans l'image : x{n_table} ; E213 dans la table de telemetrie : x{n_e213}")
+
+
+def ecritures(corps, decal):
+    """valeurs ecrites (movs #V juste avant) par les str [rX, #decal] du corps, dans l'ordre"""
+    l, vals = corps.splitlines(), []
+    for k, ligne in enumerate(l):
+        m = re.search(rf"\bstr(?:\.w)?\s+(r\d+), \[r\d+, #{decal}\]", ligne)
+        if m:
+            v = None
+            for j in range(k - 1, max(k - 7, -1), -1):          # registre remonte jusqu'a sa derniere ecriture
+                mv = re.search(rf"\bmovs?(?:\.w)?\s+{m.group(1)}, #(\d+)", l[j])
+                if mv:
+                    v = int(mv.group(1))
+                    break
+                if re.search(rf":\s+(?!str)\S+\s+{m.group(1)}\b", l[j]):   # ecrit autrement : valeur inconnue
+                    break
+            vals.append(v)
+    return vals
+
+
+def contient(vals, motif):
+    return any(vals[i:i + len(motif)] == motif for i in range(len(vals) - len(motif) + 1))
+
+
+bc, bop = ecritures(dis_main, 3092), ecritures(dis_main, 3088)          # GPIOB_BC 0x40010c14, GPIOB_BOP 0x40010c10
+print(f"   main : GPIOB_BC (base 0x40010000 + 0xc14) <- {bc} ; GPIOB_BOP (+ 0xc10) <- {bop}")
+lec_shut = fonctions_lisant("shutoffcounter") if "shutoffcounter" in syms else []
+print(f"   shutoffcounter (extinction d'EBiCS) lu par : {lec_shut}")
+if ROUTE:
+    lec_e, lec_rx, lec_cal = fonctions_lisant("route_ext"), fonctions_lisant("route_aff_rx"), fonctions_lisant("route_aff_cal")
+    print(f"   route_ext lu par {lec_e} ; route_aff_rx par {lec_rx} ; route_aff_cal par {lec_cal}")
+    se = func("sendCAN_Etat", 0) if "sendCAN_Etat" in syms else ""
+    print("route : sendCAN_Etat appelee par main, lit TSTAT de CAN0 (0x40006400) et route_aff_rx (echo, 0x6300 vue) :",
+          "OK" if "<sendCAN_Etat>" in dis_main and re.search(r"\.word\s+0x40006400\b", se) and lit_adresse(se, "route_aff_rx")
+          else "A VERIFIER")
+    print("route : table des codes des trames d'etat presente une fois, E213 dans la telemetrie :",
+          "OK" if n_table == 1 and n_e213 == 1 else "A VERIFIER")
+    print("route : processCAN_Rx releve les trames de l'afficheur, E213 lue par bench_can_poll :",
+          "OK" if {"processCAN_Rx", "sendCAN_Etat", "bench_can_poll"} <= set(lec_rx) else "A VERIFIER")
+    print("route : verrou de l'extinction lu par pwm_enable_safe, main (boucle lente) et bench_can_poll (E213) :",
+          "OK" if {"pwm_enable_safe", "main", "bench_can_poll"} <= set(lec_e) else "A VERIFIER")
+    print("route : coupure PB5, PB4, PB3 dans cet ordre (BC 32, 16, 8) et rallumage PB4, PB3, PB5 (BOP 16, 8, 32) :",
+          "OK" if contient(bc, [32, 16, 8]) and contient(bop, [16, 8, 32]) else "A VERIFIER")
+    print("route : extinction d'EBiCS retiree (shutoffcounter non lu par main) :", "OK" if "main" not in lec_shut else "A VERIFIER")
+else:
+    print("banc : pas de trames d'etat ni d'E213 (symboles, table des codes et entree E213 absents) :",
+          "OK" if not any(x in syms for x in aff_syms) and n_table == 0 and n_e213 == 0 else "A VERIFIER")
+    print("banc : extinction d'EBiCS inchangee (shutoffcounter lu par main, PB3 jamais coupe) :",
+          "OK" if "main" in lec_shut and 8 not in bc else "A VERIFIER")
+
 section("Table de vecteurs (debut de ebics.bin) : entrees qui tombent sur Default_Handler")
 names = []
 for l in open("port_f10x/startup_gd32f10x_hd.S", encoding="ascii").read().split("__gVectors:")[1].splitlines():

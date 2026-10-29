@@ -54,6 +54,13 @@ uint8_t level_counter;
 uint16_t Rx_MF_active=0;
 #ifdef ROUTE_BUILD
 extern volatile uint8_t route_niveau_demande;     /* socle de conformite (28/10, main.c) */
+/* afficheur (29/10, inc/afficheur_aoci.h) : trames d'etat du controleur d'origine (C2) et releve des trames de l'afficheur
+   (C3, telemetrie E213) */
+#include "afficheur_aoci.h"
+#include "bench_can.h"
+aff_rx_t route_aff_rx = AFF_RX_INIT;
+aff_cal_t route_aff_cal;
+void sendCAN_Etat(MotorState_t* MS, uint8_t coupe, uint8_t extinction);
 #endif
 uint16_t checksum=0;
 
@@ -63,6 +70,10 @@ void processCAN_Rx(MotorParams_t* MP, MotorState_t* MS){
 	Ext_ID_Rx.operation = (receive_message.rx_efid>>16)&0x07; //only 3 bit width
 	Ext_ID_Rx.target = (receive_message.rx_efid>>19)&0x1F; //only 5 bit width
 	Ext_ID_Rx.source = (receive_message.rx_efid>>24)&0x1F;
+#ifdef ROUTE_BUILD
+	if(Ext_ID_Rx.source==CAN_NODE_DISPLAY)   /* afficheur (29/10) : toute trame de l'afficheur, quelle que soit la cible */
+		aff_rx_note(&route_aff_rx, Ext_ID_Rx.command, receive_message.rx_data, receive_message.rx_dlen, bench_ms);
+#endif
 
 	/* Trames pour ce controleur, ou commande afficheur 0x6300 diffusee : l'afficheur AOCI emet 0x13F86300 vers la diffusion 0x1F
 	   (pas d'accuse ni de reponse dans ce cas, comme le controleur AOCI d'origine) */
@@ -361,6 +372,41 @@ void sendCAN_Poll(MotorParams_t* MP, MotorState_t* MS, uint16_t command){
 
 	}//end case
 }
+
+#ifdef ROUTE_BUILD
+/* afficheur (29/10, C2) : une trame d'etat au plus par tour de la boucle principale, seulement si 2 boites d'emission sont
+   libres (une reste a sendCAN_Poll, envoi bloquant de la boucle lente), sans attente ; une trame refusee reste due.
+   coupe : extinction ou eteint (plus de trames periodiques) ; extinction : 0x12F83204 = 00 toutes les 40 ms. */
+void sendCAN_Etat(MotorState_t* MS, uint8_t coupe, uint8_t extinction){
+	uint32_t now = bench_ms;
+	int i = aff_cal_due(&route_aff_cal, now, coupe, extinction, route_aff_rx.vu_6300);
+	if(i < 0) return;
+	uint32_t ts = CAN_TSTAT(CAN0);
+	if(((ts & CAN_TSTAT_TME0) ? 1 : 0) + ((ts & CAN_TSTAT_TME1) ? 1 : 0) + ((ts & CAN_TSTAT_TME2) ? 1 : 0) < 2) return;
+	can_trasnmit_message_struct m;
+	m.tx_sfid = 0x00;
+	m.tx_efid = aff_id(i);
+	m.tx_ft = CAN_FT_DATA;
+	m.tx_ff = CAN_FF_EXTENDED;
+	for(int k = 0; k < 8; k++) m.tx_data[k] = 0;
+	switch(i){
+		case AFF_3202: m.tx_dlen = 1; m.tx_data[0] = (MS->pushassist_flag==SET) ? 1 : 0; break;   /* marche assistee */
+		case AFF_3206: m.tx_dlen = 1; m.tx_data[0] = route_aff_rx.code_6300; break;              /* echo du code de niveau */
+		case AFF_3207: m.tx_dlen = 8; m.tx_data[3] = aff_hall_aoci((GPIO_ISTAT(GPIOC) >> 6) & 0x07u); break;
+		case AFF_3204: m.tx_dlen = 1; m.tx_data[0] = 1; break;                                   /* en marche */
+		case AFF_1200: m.tx_dlen = 1; break;                                                     /* aucun defaut */
+		case AFF_3000: {                                                                         /* compteur de vie */
+			uint32_t v = route_aff_cal.vie;
+			m.tx_dlen = 4;
+			m.tx_data[0] = v & 0xFF; m.tx_data[1] = (v >> 8) & 0xFF; m.tx_data[2] = (v >> 16) & 0xFF; m.tx_data[3] = (v >> 24) & 0xFF;
+			break;
+		}
+		default: m.tx_dlen = 1; break;                                                           /* AFF_3204_00 : extinction */
+	}
+	can_message_transmit(CAN0, &m);
+	aff_cal_envoyee(&route_aff_cal, i, now);
+}
+#endif
 
 void sendCAN_Tx(MotorParams_t* MP, MotorState_t* MS){
 
