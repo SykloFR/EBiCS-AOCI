@@ -206,6 +206,24 @@ const PROTOCOLES = {
       att: "T contrôleur < 65 °C, Ibat ≤ 9,0 A" },
     { id: "ARRET", d: 30, bpm: null, txt: "Arrête de pédaler, pieds relâchés. Ne touche pas à l'afficheur.",
       att: "consigne 0, pont coupé quand le moteur s'arrête" } ] },
+  /* lot B2 (29/10), lot-B2-niveau3-attendu-20261029.md : protocole court, une phase = un objectif ; 45 tr/min sous
+     resistance pour le couple sans la cadence (limite de tension vers 50 tr/min a 59 pts) ; alarme i_q a 75 (plafond 59
+     + ondulation de mesure) */
+  b2: { titre: "B2 : niveau 3, paliers de charge courts (4 min)", nom: "lotB2-niveau3", iqMax: 75, phases: [
+    { id: "R0", d: 15, bpm: null, res: 10, txt: "Repos. Mets l'afficheur au niveau 3 avant le bip suivant.",
+      att: "niveau 6 (code du niveau 3), défaut 0" },
+    { id: "P1", d: 45, bpm: 45, res: 10, txt: "Pédale à 45 tr/min (un tour par bip), appui normal.",
+      att: "consigne ≈ 30 pts, Ibat ≈ 4-5 A" },
+    { id: "P2", d: 45, bpm: 45, res: 30, txt: "Résistance 30 %. Toujours 45 tr/min, appui fort et régulier.",
+      att: "i_q au plafond ≈ 59 pts, Ibat → 10,8 A au plus" },
+    { id: "P3", d: 45, bpm: 45, res: 45, txt: "Résistance 45 %. Appui maximal, garde 45 tr/min.",
+      att: "plafond tenu, Ibat ≤ 10,8 A, aucun défaut" },
+    { id: "H", d: 30, bpm: 65, res: 10, txt: "Résistance 10 %. Monte à 65 tr/min, appui normal.",
+      att: "u_abs au plafond 1500 (cercle), i_q sous la consigne : limite de tension" },
+    { id: "F", d: 20, bpm: 45, res: 60, txt: "Résistance 60 % d'un coup : garde l'appui à 45 tr/min pendant que la charge monte.",
+      att: "pas de pointe > 120 pts, défaut 0" },
+    { id: "ARRET", d: 20, bpm: null, res: 10, txt: "Arrête de pédaler, pieds relâchés. Touche le boîtier : chaud ?",
+      att: "consigne 0, pont coupé quand le moteur s'arrête" } ] },
   libre: { titre: "Capture libre (durée réglable)", nom: "capture-libre-e013e55", libre: true, phases: [
     { id: "L", d: 60, bpm: null, txt: "Capture en cours.", att: "" } ] }
 };
