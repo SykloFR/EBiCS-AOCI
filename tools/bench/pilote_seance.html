@@ -178,6 +178,21 @@ const PROTOCOLES = {
       att: "i_q ≤ palier + 3, Ibat ≤ 15 A" },
     { id: "B6", d: 10, bpm: null, res: 10, txt: "Arrête de pédaler, pieds relâchés. Touche le boîtier : chaud ?",
       att: "consigne 0, pont coupé quand le moteur s'arrête" } ] },
+  /* lot B1 (29/10), correctif-plafond-integrale-iq-attendu-20261029.md : niveau 1, cadence montee par paliers, 1 bip par
+     tour de pedalier ; i_q doit suivre la consigne jusqu'a ~65 tr/min */
+  b12: { titre: "B1.2 : niveau 1, paliers de cadence 45 à 70 tr/min (10 min)", nom: "lotB1-B1.2-niveau1-3dee9cc", phases: [
+    { id: "C45", d: 120, bpm: 45, txt: "Niveau 1. Pédale : un tour de pédalier à chaque bip (45 tr/min).",
+      att: "i_q suit la consigne, assistance présente" },
+    { id: "C55", d: 120, bpm: 55, txt: "Un tour à chaque bip (55 tr/min).",
+      att: "i_q suit la consigne ; avant correctif il décrochait ici" },
+    { id: "C65", d: 120, bpm: 65, txt: "Un tour à chaque bip (65 tr/min).",
+      att: "i_q suit encore, erps au-delà de 233" },
+    { id: "C70", d: 120, bpm: 70, txt: "Un tour à chaque bip (70 tr/min).",
+      att: "u_q peut toucher 1496 ; i_q peut décrocher là (limite de tension)" },
+    { id: "C50", d: 120, bpm: 50, txt: "Redescends : un tour à chaque bip (50 tr/min).",
+      att: "i_q suit la consigne" },
+    { id: "ARRET", d: 30, bpm: null, txt: "Arrête de pédaler, pieds relâchés. Touche le boîtier : chaud ?",
+      att: "consigne 0, pont coupé quand le moteur s'arrête" } ] },
   libre: { titre: "Capture libre (durée réglable)", nom: "capture-libre-e013e55", libre: true, phases: [
     { id: "L", d: 60, bpm: null, txt: "Capture en cours.", att: "" } ] }
 };
