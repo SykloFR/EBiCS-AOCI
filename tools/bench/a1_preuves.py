@@ -255,11 +255,11 @@ section("Echelle de courant (decision de revue du 27/10/2026)")
 mv = {k: v for k, v in re.findall(r"^#define (PH_CURRENT_TRIP|PH_CURRENT_MAX|BENCH_WALK_ILIM_MAX|BRIDE_ERPS_DEBUT|BRIDE_ERPS_FIN|SPEEDLIMIT|ROUTE_NIVEAU_MAX|ROUTE_VARIANTE_REPLI|BATTERYCURRENT_MAX|VOLTAGE_MIN|REVERSE|CURRENT_SIGN) (\S+)", macros, re.M)}
 print("macros :", mv)
 if ROUTE:
-    attendu_r = {"PH_CURRENT_TRIP": "377", "PH_CURRENT_MAX": "30", "SPEEDLIMIT": "1500", "ROUTE_NIVEAU_MAX": "2",
+    attendu_r = {"PH_CURRENT_TRIP": "120", "PH_CURRENT_MAX": "45", "SPEEDLIMIT": "1500", "ROUTE_NIVEAU_MAX": "4",
                  "BATTERYCURRENT_MAX": "15000", "VOLTAGE_MIN": "1773", "REVERSE": "1", "CURRENT_SIGN": "1",
                  "ROUTE_VARIANTE_REPLI": "2"}
     ecarts = {k: (mv.get(k), v) for k, v in attendu_r.items() if mv.get(k) != v}
-    print("seuils route (377 / 30 / 15 km/h / niveau 1 / 15 A / 30 V / REVERSE +1 / CURRENT_SIGN +1) :",
+    print("seuils route lot B1 (trip de harnais 120 / 45 / 15 km/h / niveau 2 / 15 A / 30 V / REVERSE +1 / CURRENT_SIGN +1) :",
           "OK" if not ecarts else f"A VERIFIER {ecarts}")
 else:
     print("banc : pas de repli de variante (ROUTE_VARIANTE_REPLI absente) :", "OK" if "ROUTE_VARIANTE_REPLI" not in mv else "A VERIFIER")
