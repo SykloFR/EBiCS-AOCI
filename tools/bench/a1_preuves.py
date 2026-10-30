@@ -58,7 +58,7 @@ for k, v in socle.items():
 timer_l5 = "socle_l5_pas(&route_l5" in pp_main
 print(f"   timer L5 du socle (2 min / 8 min) dans le firmware : {'present' if timer_l5 else 'absent'}")
 img_pi = open(IMG, "rb").read()   # limit_i (offset 8) et limit_output (offset 10) ecrits par un seul mot
-umax = 1800 if ROUTE else 1500   # lot B3 (30/10) : U_MAX_BENCH 1800 en route
+umax = 1920 if ROUTE else 1500   # 30/10 soir : U_MAX_BENCH 1920 en route (lot B3 : 1800)
 mot_34, mot_max = struct.pack("<I", (umax << 16) | (umax * 3 // 4)), struct.pack("<I", (umax << 16) | umax)
 print(f"   mots limit_i | limit_output << 16 dans l'image : {umax * 3 // 4}|{umax} x{img_pi.count(mot_34)}, {umax}|{umax} x{img_pi.count(mot_max)}")
 plafond_iq = img_pi.count(mot_max) >= 1 and img_pi.count(mot_34) >= 1   # i_q a _U_MAX, i_d garde 3/4
@@ -99,8 +99,8 @@ reprise30 = "couple_zero.zero+30&&PAS_counter" in pp_main
 profil_ebics = "assist_profile[k][l]=(k+1)*20" in pp_parser
 print(f"   profil route {profil} ; profil EBiCS (k+1) x 20 present : {profil_ebics} ; plancher (vitesse moteur, sous appui) dans update_setpoint : {plancher} ; reprise du couple a zero + 30 mV : {reprise30}")
 if ROUTE:
-    print("route : profil 31 / 43 / 57 / 67 / 110 et plancher de cadence :",
-          "OK" if profil == [31, 43, 57, 67, 110] and plancher and reprise30 and not profil_ebics else "A VERIFIER")
+    print("route : profil 31 / 43 / 57 / 67 / 140 et plancher de cadence :",
+          "OK" if profil == [31, 43, 57, 67, 140] and plancher and reprise30 and not profil_ebics else "A VERIFIER")
 else:
     print("banc : profil EBiCS et pas de plancher (inchange) :",
           "OK" if profil is None and not plancher and not reprise30 and profil_ebics else "A VERIFIER")
@@ -333,10 +333,10 @@ mv = {k: v for k, v in re.findall(r"^#define (TRIGGER_OFFSET_ADC_DYN|DYN_STAB_DE
 print("macros :", mv)
 if ROUTE:
     attendu_r = {"PH_CURRENT_TRIP": "245", "PH_CURRENT_MAX": "130", "SPEEDLIMIT": "1500", "ROUTE_NIVEAU_MAX": "9",
-                 "BATTERYCURRENT_MAX": "18000", "U_MAX_BENCH": "1800L", "TRIGGER_OFFSET_ADC_DYN": "65", "DYN_STAB_DEFAUT": "450", "DYN_STAB_DYN": "350", "DYN_SUITE_MAX": "16", "VOLTAGE_MIN": "1773", "REVERSE": "1", "CURRENT_SIGN": "1",
+                 "BATTERYCURRENT_MAX": "18000", "U_MAX_BENCH": "1920L", "TRIGGER_OFFSET_ADC_DYN": "65", "DYN_STAB_DEFAUT": "450", "DYN_STAB_DYN": "350", "DYN_SUITE_MAX": "16", "VOLTAGE_MIN": "1773", "REVERSE": "1", "CURRENT_SIGN": "1",
                  "ROUTE_VARIANTE_REPLI": "2"}
     ecarts = {k: (mv.get(k), v) for k, v in attendu_r.items() if mv.get(k) != v}
-    print("seuils route lot B3 (trip de harnais 245 / 130 / 15 km/h / niveau 5 / 18 A / U_MAX 1800 / avance dyn 65 / etablissement 450 et 350 / suite tenue 16 / 30 V / REVERSE +1 / CURRENT_SIGN +1) :",
+    print("seuils route lot B3 (trip de harnais 245 / 130 / 15 km/h / niveau 5 / 18 A / U_MAX 1920 / avance dyn 65 / etablissement 450 et 350 / suite tenue 16 / 30 V / REVERSE +1 / CURRENT_SIGN +1) :",
           "OK" if not ecarts else f"A VERIFIER {ecarts}")
 else:
     print("banc : pas de repli de variante (ROUTE_VARIANTE_REPLI absente) :", "OK" if "ROUTE_VARIANTE_REPLI" not in mv else "A VERIFIER")

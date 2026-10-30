@@ -43,7 +43,7 @@ static void sv(long u, double th, uint16_t s[3])
 static dyn_decision_t decider(const uint16_t sp[3], const uint16_t sn[3])
 {
 	return dyn_decision_robuste(sp, sn, DYN_SEUIL_ROUTE, TRIGGER_OFFSET_ADC_DYN, TRIGGER_DEFAULT, T_ECH, DYN_STAB_DEFAUT,
-	                            DYN_STAB_DYN, DTG, _T);
+	                            DYN_STAB_DYN, DTG, _T, DYN_CALME);
 }
 
 /* temps d'etablissement mesure pour un declenchement donne */
@@ -73,6 +73,7 @@ static int verifier_placement(long u, double d_deg, int *tenues, int *suite_max)
 			int tech = dx[c]->cc4 + T_ECH, st = stab_de(dx[c]->cc4);
 			for (int p = 0; p < 3; p++)
 				if (((utiles >> p) & 1) && dyn_marge(pwm[c], (uint8_t)p, tech, DTG, _T) < st) fautes++;
+			if (utiles && !dyn_calme(pwm[c], tech, DTG, DYN_CALME)) fautes++;   /* voie utilisee juste apres une commutation */
 			if (!tenir && dx[c]->masque != 0x07) {
 				int m = (dx[c]->etat == 2) ? 0 : (dx[c]->etat == 3 ? 1 : 2);
 				if (tech >= pwm[c][m]) fautes++;
@@ -106,7 +107,7 @@ static chaine_t chaine(long u, double d_deg, double I, int ancien, int combo)
 		sv(u, th, s0);
 		/* --- ISR k : decision (route_dyn_placer) sur S(k-1) = s1 et S(k) = s0 --- */
 		dyn_decision_t dn = ancien ? dyn_decision_robuste(s1, s0, DYNAMIC_ADC_THRESHOLD, TRIGGER_OFFSET_ADC_DYN, TRIGGER_DEFAULT,
-		                                                    T_ECH, 60, 60, DTG, _T)
+		                                                    T_ECH, 60, 60, DTG, _T, 0)
 		                           : decider(s1, s0);
 		int ddyn = prec.masque != 0x07, ndyn = dn.masque != 0x07;
 		tenir = dn.tenir || prec.tenir || ((ddyn || ndyn) && dn.etat != prec.etat);
@@ -121,7 +122,8 @@ static chaine_t chaine(long u, double d_deg, double I, int ancien, int combo)
 		int16_t vrai[3], lu[3];
 		for (int p = 0; p < 3; p++) {
 			vrai[p] = (int16_t)lround(I * cos(thc - p * 2.0 * M_PI / 3.0));
-			int etabli = dyn_marge(s, (uint8_t)p, cc + T_ECH, DTG, _T) >= stab_de(cc);
+			int etabli = dyn_marge(s, (uint8_t)p, cc + T_ECH, DTG, _T) >= stab_de(cc)
+			             && dyn_calme(s, cc + T_ECH, DTG, DYN_CALME);   /* lue juste apres une commutation : fausse */
 			lu[p] = etabli ? vrai[p] : (int16_t)(((k + p) & 1) ? RAIL : -RAIL);
 		}
 		/* --- ISR k+1 : F4, reconstruction d'EBiCS, trip --- */

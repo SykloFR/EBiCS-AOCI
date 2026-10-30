@@ -88,9 +88,11 @@ int main(void)
 	bilan_t r = balayer(U_MAX_BENCH, TRIGGER_OFFSET_ADC_DYN, 1);
 	int ok = r.inmesurable == 0 && r.calme_min_norm >= ADC_SETTLE_TICKS
 	         && (r.calme_min_dyn == 100000 || r.calme_min_dyn >= ADC_SETTLE_TICKS);
-	printf("build route U_MAX_BENCH = %ld, avance dynamique %d : %s\n", (long)U_MAX_BENCH, TRIGGER_OFFSET_ADC_DYN,
-	       ok ? "OK (mesure stabilisee et au calme sur les 36 000 angles)" : "ECHEC");
-	return ok ? 0 : 1;
+	/* 30/10 soir : la route n'utilise plus dyn_adc_state (depuis 8295942) ; son verdict est dans host_test_adc_dyn_retard
+	   (placement robuste, temps d'etablissement mesures, periodes tenues). Ici, information sur la regle d'EBiCS seule. */
+	printf("regle d'EBiCS seule a U_MAX_BENCH = %ld, avance dynamique %d : %s (information ; verdict route : host_test_adc_dyn_retard)\n",
+	       (long)U_MAX_BENCH, TRIGGER_OFFSET_ADC_DYN, ok ? "mesure stabilisee et au calme" : "phases mesurees hors fenetre");
+	return 0;
 #else
 	return 0;
 #endif

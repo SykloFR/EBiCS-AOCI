@@ -41,9 +41,19 @@ static inline int32_t dyn_marge(const uint16_t s[3], uint8_t p, int32_t tech, in
     return tech - ((int32_t)s[p] + dtg);
 }
 
+/* calme : aucune commutation (bras haut qui s'ouvre a s, bras bas qui se ferme a s + dtg) dans les `calme` ticks avant la
+   fin de l'echantillon, pour les deux jeux de rapports (30/10 soir : crete E100 a 2-4 x i_q sous 1309f72 et 7478f7d, voies
+   lues au sommet juste apres la commutation de la phase la plus chargee, aux frontieres de secteur) */
+static inline uint8_t dyn_calme(const uint16_t s[3], int32_t tech, int32_t dtg, int32_t calme)
+{
+    for (uint8_t p = 0; p < 3; p++)
+        if ((int32_t)s[p] < tech && (int32_t)s[p] + dtg > tech - calme) return 0;
+    return 1;
+}
+
 static inline dyn_decision_t dyn_decision_robuste(const uint16_t sp[3], const uint16_t sn[3], int32_t seuil, int32_t avance,
                                                   int32_t defaut, int32_t t_ech, int32_t stab, int32_t stab_dyn, int32_t dtg,
-                                                  int32_t t)
+                                                  int32_t t, int32_t calme)
 {
     static const uint8_t etat_de[3] = {2, 3, 1};            /* phase la plus chargee -> etat EBiCS */
     static const uint8_t masque_de[3] = {0x06, 0x05, 0x03}; /* phase illisible si deplace */
@@ -65,6 +75,7 @@ static inline dyn_decision_t dyn_decision_robuste(const uint16_t sp[3], const ui
     d.valides = 0;
     for (uint8_t p = 0; p < 3; p++)
         if (dyn_marge(sp, p, tech, dtg, t) >= st && dyn_marge(sn, p, tech, dtg, t) >= st) d.valides |= (uint8_t)(1u << p);
+    if (!dyn_calme(sp, tech, dtg, calme) || !dyn_calme(sn, tech, dtg, calme)) d.valides = 0;   /* commutation trop proche */
     if ((d.valides & d.masque) != d.masque) d.tenir = 1;   /* une phase mesuree n'est pas etablie */
     if (d.masque != 0x07 && (tech >= sp[m] || tech >= sn[m])) d.tenir = 1;   /* la phase reconstruite commuterait */
     return d;

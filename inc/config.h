@@ -179,8 +179,8 @@
 #undef BATTERYCURRENT_MAX
 #define BATTERYCURRENT_MAX 18000 // mA : controleur 18 A (decision de Yanni, 30/10 ; avant 15000, firmware AOCI 36V 15A)
 #undef U_MAX_BENCH
-#define U_MAX_BENCH 1800L        // lot B3 (30/10) : +20 % de tension, CCR max ~1886 > 1810 -> mode dynamique a haute cadence,
-                                 // valide sur PC avec l'avance de 65 (host_test_adc_dyn) ; 1920 non mesurable proprement ; avant 1500
+#define U_MAX_BENCH 1920L        // 30/10 soir : 1920 (+6,7 %, CCR max ~1945), mesure validee par host_test_adc_dyn_retard (temps
+                                 // d'etablissement mesures, periodes tenues) ; lot B3 : 1800 ; avant 1500
 #define TRIGGER_OFFSET_ADC_DYN 65 // avance du declenchement en mode dynamique : l'echantillonnage (45 ticks) finit 20 ticks AVANT
                                  // la commutation de la phase la plus chargee (EBiCS : 10, echantillon 10 ticks apres le front)
 #undef VOLTAGE_MIN
@@ -189,7 +189,7 @@
 #define SPEEDLIMIT 1500          // 15 km/h (x100) : plafond tant que la chaine ADC haute modulation n'est pas mesuree
 #define ROUTE_NIVEAU_MAX 9       // code assist_level (pas un nombre de niveaux) : 9 = niveau 5 de l'afficheur 5 niveaux
                                  // (codes 2, 4, 6, 8, 9 = niveaux 1 a 5) ; lot B3, 30/10 : niveaux 1 a 5 (avant 6)
-#define ROUTE_PROFIL_NIVEAU {31, 43, 57, 67, 110}   // loi type OSF (29/10, loi-type-osf-attendu-20261029.md) : profil plat
+#define ROUTE_PROFIL_NIVEAU {31, 43, 57, 67, 140}   // 30/10 soir : niveau 5 110 -> 140 (Yanni : plus d'assistance) ; loi type OSF (29/10, loi-type-osf-attendu-20261029.md) : profil plat
                                  // par niveau 1 a 5, vise P_bat / P_pedale = 1,6 / 2,2 / 2,8 / 3,4 / 5,6 (Z8-OSF HYBRID),
                                  // cale sur eta = 0,83 (confirme par le calage du 29/10) ; niveau 3 : 63 -> 57 (mesure 3,1, lot B3)
 #define DYN_T_ECH 45             // 30/10 : echantillonnage ADC en ticks (7,5 cycles x 6), fin = valeur retenue
@@ -199,6 +199,8 @@
                                  // 4 essais en pic (E20D) ; ADC_SETTLE_TICKS (60) etait une estimation, 7 a 8 fois trop courte
 #define DYN_SEUIL_ROUTE (TRIGGER_DEFAULT + DYN_T_ECH - DYN_DTG - DYN_STAB_DEFAUT)   // 1560 : au-dela, la phase la plus chargee
                                  // n'est plus lisible au sommet et le declenchement la suit (route ; DYNAMIC_ADC_THRESHOLD ailleurs)
+#define DYN_CALME 100           // 30/10 soir : aucune commutation dans les 100 ticks avant la fin de l'echantillon (estimation,
+                                 // a mesurer a l'oscilloscope), sinon les voies ne sont pas donnees au trip
 #define DYN_SUITE_MAX 16         // periodes non mesurables consecutives au plus (modele : 9 a erps 180-400), puis la mesure passe
                                  // telle quelle (garde de saturation, puis trip)
 #define ROUTE_COUPLE_REPRISE_MV 30 // 30/10 : reprise de l'assistance si couple > zero + 30 mV (avant 10 : bruit 737-747 mV au repos)

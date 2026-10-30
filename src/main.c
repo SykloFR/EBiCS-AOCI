@@ -390,7 +390,7 @@ static void route_dyn_placer(void)
 	   (host_test_adc_dyn_retard : 0 periode hors fenetre de 0 a 15 deg par periode). */
 	const uint16_t sn[3] = {switchtime[0], switchtime[1], switchtime[2]};
 	dyn_decision_t d = dyn_decision_robuste(route_st_prec, sn, DYN_SEUIL_ROUTE, TRIGGER_OFFSET_ADC_DYN, TRIGGER_DEFAULT,
-	                                        DYN_T_ECH, DYN_STAB_DEFAUT, DYN_STAB_DYN, DYN_DTG, _T);
+	                                        DYN_T_ECH, DYN_STAB_DEFAUT, DYN_STAB_DYN, DYN_DTG, _T, DYN_CALME);
 	uint8_t dyn_p = route_dec_prec.masque != 0x07, dyn_n = d.masque != 0x07;
 	timer_channel_output_pulse_value_config(TIMER0, TIMER_CH_3, d.cc4);
 	MS.char_dyn_adc_state = d.etat;
