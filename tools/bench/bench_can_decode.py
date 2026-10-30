@@ -81,7 +81,7 @@ def decode(cle, d):
         return dict(zero_mV=u16(1), dernier_mV=u16(3), n=u8(5), ticks_sans_hall=u16(6))
     if cle == 0xE213:   # afficheur (route, 29/10) : releve des trames recues de l'afficheur, etat de l'extinction
         f = d[7]
-        return dict(aff_n=u16(1), aff_age_ms=u16(3), code_6300=u8(5), min_6303=u8(6), extinction=f & 3, bouton=f >> 2 & 1,
+        return dict(aff_n=u16(1), aff_age_ms=u16(3), mesures_tenues=u8(5), saturations_rejetees=u8(6), extinction=f & 3, bouton=f >> 2 & 1,
                     level_counter=f >> 3 & 7, vu_6300=f >> 6 & 1, rfo1=f >> 7 & 1)
     if cle == 0xE209:
         return dict(cap_n=u8(1), cap_trip=u8(2), precharge_ms=u8(3), cap_seq=u8(4), chctl2=hex(u16(5)), cap_N=u8(7))

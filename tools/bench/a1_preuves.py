@@ -115,9 +115,11 @@ section("Mesure dynamique robuste (30/10) : placement de la mesure apres la FOC,
 robuste = "dyn_decision_robuste(route_st_prec, sn," in pp_main
 ancien = "dyn_adc_state(q31_rotorposition_absolute);" in pp_main
 tenue = "route_tenue ? route_ph_val : f4_mes" in pp_main
-print(f"   dyn_decision_robuste appelee : {robuste} ; dyn_adc_state appelee par l'ISR : {ancien} ; trip sur courants tenus : {tenue}")
+placer = "route_dyn_placer();" in pp_main and "route_dec_prec = d;" in pp_main   # 30/10 : CC4 precharge, decision cumulee
+garde = "route_glitch_prec = 1;" in pp_main
+print(f"   dyn_decision_robuste appelee : {robuste} ; dyn_adc_state appelee par l'ISR : {ancien} ; trip sur courants tenus : {tenue} ; placement avant les CCR et decision cumulee : {placer} ; garde de saturation isolee : {garde}")
 print("route : placement robuste, ancien appel retire, trip sur courants valides :" if ROUTE else "banc : dyn_adc_state d'EBiCS (inchange) :",
-      "OK" if ((robuste and not ancien and tenue) if ROUTE else (ancien and not robuste)) else "A VERIFIER")
+      "OK" if ((robuste and not ancien and tenue and placer and garde) if ROUTE else (ancien and not robuste and not garde)) else "A VERIFIER")
 
 section("Forte modulation (30/10) : avance du declenchement dynamique dans dyn_adc_state")
 avances = sorted(set(re.findall(r"\(switchtime\[[012]\]-(\d+)\)", pp_main)))

@@ -51,8 +51,8 @@
  *               (u16), appels de reg_ADC_processing par seconde (u16), tours de boucle par seconde (u16, sature), part
  *               PWM actif (u8, ms / 4)
  *   E213  1 Hz  afficheur (build route seulement, 29/10, inc/afficheur_aoci.h) : trames de l'afficheur (source 0x13)
- *               traitees (u16, reboucle), age de la derniere (u16, ms, 65535 = sature ou aucune), dernier octet 1 de 0x6300
- *               (u8, code de niveau brut), dernier octet 0 de 0x6303 (u8, minutes, 0xFF jamais, 0xFE jamais recue), etat
+ *               traitees (u16, reboucle), age de la derniere (u16, ms, 65535 = sature ou aucune), periodes de mesure tenues
+ *               (u8, modulo 256, 30/10), saturations isolees rejetees (u8, modulo 256, 30/10 ; avant : code 0x6300 et 0x6303), etat
  *               (u8 : b0-1 extinction 0 attente / 1 marche / 2 extinction / 3 eteint, b2 bouton vu appuye, b3-5
  *               level_counter, b6 0x6300 deja recue, b7 FIFO1 debordee RFO1, lu sans l'effacer)
  *   E20D 50 Hz  capture avant F4, meme rang que E20B : rang r (u8, 0xFF = vide), ph1, ph2, ph3 apres offset et avant F4
@@ -129,6 +129,7 @@ extern volatile uint16_t pedalier_exti12;
 extern aff_rx_t route_aff_rx;                    /* afficheur (29/10) : releve des trames recues (CAN_Display.c) */
 extern ext_t route_ext;                          /* afficheur (29/10) : etat de l'extinction (main.c) */
 extern uint8_t level_counter;                    /* CAN_Display.c : trames 0x6300 identiques de suite (0-4) */
+extern volatile uint16_t route_dyn_tenues, route_glitchs;   /* main.c (30/10) : mesure dynamique */
 #endif
 extern uint8_t bench_ph_max, bench_walk_max;
 extern volatile int8_t cap_ph[3][CAP_N];
@@ -521,7 +522,7 @@ static uint8_t remplir(const bench_trame_t* t, uint8_t* d)
         return 8;
     case 0xE213:
         put16(d + 1, route_aff_rx.n); put16(d + 3, aff_rx_age(&route_aff_rx, bench_ms));
-        d[5] = route_aff_rx.code_6300; d[6] = route_aff_rx.min_6303;
+        d[5] = (uint8_t)route_dyn_tenues; d[6] = (uint8_t)route_glitchs;   /* 30/10 : periodes tenues, saturations rejetees (modulo 256) */
         d[7] = (uint8_t)((route_ext.etat & 0x03u) | (route_ext.appui ? 0x04u : 0u) | ((level_counter & 0x07u) << 3)
                          | (route_aff_rx.vu_6300 ? 0x40u : 0u) | ((CAN_RFIFO1(CAN0) & CAN_RFIFO1_RFO1) ? 0x80u : 0u));
         return 8;

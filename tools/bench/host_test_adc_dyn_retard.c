@@ -110,6 +110,43 @@ static int verifier_entete(long u, double d_deg, int *tenues)
 	return fausses;
 }
 
+/* 30/10, 2e correctif : CC4 precharge, ecrit AVANT les CCR, charge au meme evenement de mise a jour. La conversion de la
+   periode suivante voit l'un des couples (S(k-1), CC4(k-1)), (S(k-1), CC4(k)) [mise a jour entre l'ecriture de CC4 et
+   celle des CCR] ou (S(k), CC4(k)). Periode tenue si la decision k-1 OU la decision k le demande. CC4(k-1) est la decision
+   sur (S(k-2), S(k-1)). Renvoie le nombre de periodes mesurees hors fenetre. */
+static int verifier_pipeline(long u, double d_deg, int *tenues)
+{
+	double d = d_deg * M_PI / 180.0;
+	int fausses = 0; *tenues = 0;
+	for (int k = 0; k < 36000; k++) {
+		double th = k * M_PI / 18000.0;
+		int a2[3], a1[3], a0[3];
+		sv(u, th - 2 * d, a2); sv(u, th - d, a1); sv(u, th, a0);
+		uint16_t s2[3] = {a2[0], a2[1], a2[2]}, s1[3] = {a1[0], a1[1], a1[2]}, s0[3] = {a0[0], a0[1], a0[2]};
+		dyn_decision_t dp = dyn_decision_robuste(s2, s1, DYNAMIC_ADC_THRESHOLD, TRIGGER_OFFSET_ADC_DYN, TRIGGER_DEFAULT,
+		                                         T_ECH, ADC_SETTLE_TICKS, DTG, _T);
+		dyn_decision_t dn = dyn_decision_robuste(s1, s0, DYNAMIC_ADC_THRESHOLD, TRIGGER_OFFSET_ADC_DYN, TRIGGER_DEFAULT,
+		                                         T_ECH, ADC_SETTLE_TICKS, DTG, _T);
+		int ddyn = dp.masque != 0x07, ndyn = dn.masque != 0x07;
+		if (dp.tenir || dn.tenir || ((ddyn || ndyn) && dp.etat != dn.etat)) { (*tenues)++; continue; }
+		/* l'ISR suivante reconstruit la phase r de dn.etat (en etat 1, la phase C est ignoree par la FOC : meme effet) */
+		int r = (dn.etat == 2) ? 0 : (dn.etat == 3 ? 1 : 2);
+		const int *pwm[3] = {a1, a1, a0};
+		const dyn_decision_t *dx[3] = {&dp, &dn, &dn};
+		for (int c = 0; c < 3; c++) {
+			int tech = dx[c]->cc4 + T_ECH, xdyn = dx[c]->masque != 0x07;
+			int mx = (dx[c]->etat == 2) ? 0 : (dx[c]->etat == 3 ? 1 : 2);
+			const int *s = pwm[c];
+			for (int p = 0; p < 3; p++) {
+				if (p == r) continue;
+				if (marge(s, p, tech) < ADC_SETTLE_TICKS) fausses++;
+			}
+			if (xdyn && (mx != r || tech >= s[mx])) fausses++;
+		}
+	}
+	return fausses;
+}
+
 int main(void)
 {
 	printf("modele avec retard d'une periode entre CC4 et CCR (cas A), U_MAX et avances du build route\n");
@@ -131,6 +168,14 @@ int main(void)
 		if ((int)(dd * 2) % 6 == 0) printf("en-tete reel, U %ld, pas %4.1f deg : %d periodes fausses, %d tenues (%.2f %%)\n",
 		                                  (long)U_MAX_BENCH, dd, f, t, 100.0 * t / 36000);
 	}
+	int kop = 0;
+	for (double dd = 0.0; dd <= 15.0; dd += 0.5) {
+		int t; int f = verifier_pipeline(U_MAX_BENCH, dd, &t);
+		if (f) kop = 1;
+		if ((int)(dd * 2) % 6 == 0) printf("CC4 precharge + decision cumulee, U %ld, pas %4.1f deg : %d periodes fausses, %d tenues (%.2f %%)%c",
+		                                  (long)U_MAX_BENCH, dd, f, t, 100.0 * t / 36000, 10);
+	}
+	ko |= kop;
 	printf("build route : %s\n", ko ? "ECHEC (periode mesuree hors fenetre)" : "OK (aucune periode mesuree hors fenetre, de 0 a 15 deg par periode)");
 	return ko;
 }

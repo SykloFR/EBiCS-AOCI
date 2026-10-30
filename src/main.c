@@ -376,7 +376,29 @@ volatile int16_t route_ph_trip[3] = {0, 0, 0};    /* 30/10 : entrees du trip de 
 static uint16_t route_st_prec[3] = {_T >> 1, _T >> 1, _T >> 1};
 static uint8_t route_dyn_tenir = 0;
 static int16_t route_ph_val[3] = {0, 0, 0};
-volatile uint16_t route_dyn_tenues = 0;           /* periodes non mesurables (lecture SWD, sature) */
+volatile uint16_t route_dyn_tenues = 0;           /* periodes non mesurables (E213 octet 5, modulo 256) */
+static dyn_decision_t route_dec_prec = {TRIGGER_DEFAULT, 1, 0x07, 0};   /* decision de l'ISR precedente (CC4 precharge) */
+static uint8_t route_dyn_fait = 0;                /* decision deja prise dans cette ISR (avant l'ecriture des CCR) */
+static uint8_t route_glitch_prec = 0;             /* saturation isolee rejetee a la periode precedente */
+volatile uint16_t route_glitchs = 0;              /* saturations isolees rejetees (E213 octet 6, modulo 256) */
+static void route_dyn_placer(void)
+{
+	/* 30/10 : CC4 precharge, ecrit AVANT les CCR : la conversion suivante voit (S(k-1), CC4(k-1)), (S(k-1), CC4(k)) ou
+	   (S(k), CC4(k)). Periode tenue si l'une des deux decisions le demande, ou si elles ne designent pas la meme phase
+	   (host_test_adc_dyn_retard : 0 periode hors fenetre de 0 a 15 deg par periode). */
+	const uint16_t sn[3] = {switchtime[0], switchtime[1], switchtime[2]};
+	dyn_decision_t d = dyn_decision_robuste(route_st_prec, sn, DYNAMIC_ADC_THRESHOLD, TRIGGER_OFFSET_ADC_DYN, TRIGGER_DEFAULT,
+	                                        DYN_T_ECH, ADC_SETTLE_TICKS, DYN_DTG, _T);
+	uint8_t dyn_p = route_dec_prec.masque != 0x07, dyn_n = d.masque != 0x07;
+	timer_channel_output_pulse_value_config(TIMER0, TIMER_CH_3, d.cc4);
+	MS.char_dyn_adc_state = d.etat;
+	f4_masque = (uint8_t)(d.masque & route_dec_prec.masque);
+	route_dyn_tenir = (uint8_t)(d.tenir || route_dec_prec.tenir || ((dyn_p || dyn_n) && d.etat != route_dec_prec.etat));
+	if(route_dyn_tenir && route_dyn_tenues < 0xFFFFu) route_dyn_tenues++;
+	route_dec_prec = d;
+	route_st_prec[0] = sn[0]; route_st_prec[1] = sn[1]; route_st_prec[2] = sn[2];
+	route_dyn_fait = 1;
+}
 #endif
 volatile uint16_t f4_refus[4] = {0, 0, 0, 0};
 /* PORTE 4, diagnostic du demarrage du pont et correctif candidat F3 (26/10/2026 : defaut 3 des le palier u_d 0 sur le velo,
@@ -1407,7 +1429,11 @@ void timer0_config(void)
 	       CH3 (CC4) en PWM1 (= PWM mode 2 ST, actif quand CNT >= CCR4, donc front montant unique autour du sommet CNT = _T)
 	       et TRGO = OC3REF (MMS = 0x70) pour declencher ADC0/ADC1/ADC2 injectes une seule fois par periode PWM (16,5 kHz). */
 	    timer_channel_output_mode_config(TIMER0,TIMER_CH_3,TIMER_OC_MODE_PWM1);
+#ifdef ROUTE_BUILD
+	    timer_channel_output_shadow_config(TIMER0,TIMER_CH_3,TIMER_OC_SHADOW_ENABLE);   /* 30/10 : CC4 charge avec les CCR, jamais d'ecriture immediate (front parasite) */
+#else
 	    timer_channel_output_shadow_config(TIMER0,TIMER_CH_3,TIMER_OC_SHADOW_DISABLE);
+#endif
 	    timer_master_output_trigger_source_select(TIMER0,TIMER_TRI_OUT_SRC_O3CPRE);
 	    timer_automatic_output_disable(TIMER0);
 	    /* automatic output enable, break, dead time and lock configuration*/
@@ -2285,6 +2311,23 @@ void ADC0_1_IRQHandler(void)
     		pt_idx = (uint8_t)((pt_idx + 1u) % PT_N);
     		if(pt_n < PT_N) pt_n++;
     	}
+#ifdef ROUTE_BUILD
+    	/* 30/10 : saturation isolee (un echantillon en butee alors que la periode valide precedente etait sous le seuil de
+    	   trip) : echantillon pris bras bas ouvert, rejete une periode (courants valides gardes pour la FOC et le trip).
+    	   Deux periodes de suite en saturation : passage au trip (une vraie surintensite coupe au plus une periode plus tard). */
+    	{
+    		int16_t mx = 0, mv = 0;
+    		for(int q = 0; q < 3; q++){ int16_t a = (int16_t)abs(f4_t[q]); if(a > mx) mx = a; a = (int16_t)abs(route_ph_val[q]); if(a > mv) mv = a; }
+    		if(mx >= PH_SATURATION_COUNTS && !route_glitch_prec && mv < PH_CURRENT_TRIP){
+    			route_glitch_prec = 1;
+    			if(route_glitchs < 0xFFFFu) route_glitchs++;
+    			f4_t[0] = route_ph_val[0]; f4_t[1] = route_ph_val[1]; f4_t[2] = route_ph_val[2];
+    			i16_ph1_current = route_ph_val[0]; i16_ph2_current = route_ph_val[1]; i16_ph3_current = route_ph_val[2];
+    		} else {
+    			route_glitch_prec = 0;
+    		}
+    	}
+#endif
     	safety_check_phase_currents(f4_t[0], f4_t[1], f4_t[2]);
     	if(safety_is_latched()) pt_gel = 1;
 #else
@@ -2358,6 +2401,9 @@ void ADC0_1_IRQHandler(void)
 					(((int16_t) MP.reverse * i8_reverse_flag)
 							* MS.i_q_setpoint), &MS, &MP);
 
+#ifdef ROUTE_BUILD
+		route_dyn_placer();                       /* 30/10 : CC4 (precharge) ecrit avant les CCR */
+#endif
 		timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_0,switchtime[0]);
 		timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_1,switchtime[1]);
 		timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_2,switchtime[2]);
@@ -2372,19 +2418,8 @@ void ADC0_1_IRQHandler(void)
 
     }
 #ifdef ROUTE_BUILD
-    /* 30/10 : placement de la PROCHAINE mesure, apres la FOC, sur S(k-1) (route_st_prec) et S(k) (switchtime) : la conversion
-       suivante voit l'un ou l'autre selon que l'ISR finit avant ou apres le bas du compteur (CCR precharges) */
-    {
-    	const uint16_t sn[3] = {switchtime[0], switchtime[1], switchtime[2]};
-    	dyn_decision_t d = dyn_decision_robuste(route_st_prec, sn, DYNAMIC_ADC_THRESHOLD, TRIGGER_OFFSET_ADC_DYN, TRIGGER_DEFAULT,
-    	                                        DYN_T_ECH, ADC_SETTLE_TICKS, DYN_DTG, _T);
-    	timer_channel_output_pulse_value_config(TIMER0, TIMER_CH_3, d.cc4);
-    	MS.char_dyn_adc_state = d.etat;
-    	f4_masque = d.masque;
-    	route_dyn_tenir = d.tenir;
-    	if(d.tenir && route_dyn_tenues < 0xFFFFu) route_dyn_tenues++;
-    	route_st_prec[0] = sn[0]; route_st_prec[1] = sn[1]; route_st_prec[2] = sn[2];
-    }
+    if(!route_dyn_fait) route_dyn_placer();         /* pont coupe : pas de FOC, decision prise ici */
+    route_dyn_fait = 0;
 #endif
 #ifdef BENCH_BUILD
     pt_k = 0xFF; pt_tenu = 0;

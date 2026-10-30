@@ -17,6 +17,7 @@
 #include <stdint.h>
 
 /* codes alignes sur les codes de clignotement de la LED du firmware AOCI (PB12) */
+#define PH_SATURATION_COUNTS 2000   /* butee de mesure (safety.c, meme valeur) : aussi utilise par la garde de plausibilite (main.c, route, 30/10) */
 #define FAULT_NONE            0
 #define FAULT_OVERCURRENT     3
 #define FAULT_HALL            6
