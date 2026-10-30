@@ -1892,7 +1892,7 @@ void reg_ADC_processing(void)
 	MS.calories=MP.angle_correction/one_deg;
 	MS.torque_on_crank=(((adc_value[2])*3300)>>12)+torque_offset_correction; //map ADC value to mV
 #ifdef ROUTE_BUILD
-	if(MS.torque_on_crank>(int32_t)couple_zero.zero+10&&PAS_counter<MP.PAS_timeout)torque_counter=0;   /* zero adaptatif + 10 mV (27/10) */
+	if(MS.torque_on_crank>(int32_t)couple_zero.zero+ROUTE_COUPLE_REPRISE_MV&&PAS_counter<MP.PAS_timeout)torque_counter=0;   /* zero adaptatif + 30 mV (30/10 ; 27/10 : + 10, depasse par le bruit) */
 #else
 	if(MS.torque_on_crank>760&&PAS_counter<MP.PAS_timeout)torque_counter=0;//reset counter, if pressure on pedal and pedals rotating
 #endif
@@ -2803,7 +2803,7 @@ uint16_t update_setpoint(void){
 					if(Backwards_counter<4){//normal ride mode, motor power only if pedals are not turned backwards
 						MS.i_q_setpoint_temp=(uint32_t)((float) (MP.TS_coeff*powf((float)MS.cadence,helper))*(MS.torque_filtered)*0.0005*interpolate_assistfactor());//factor 0.0005 from various constants
 #ifdef ROUTE_BUILD
-						MS.i_q_setpoint_temp=loi_osf_plancher(MS.i_q_setpoint_temp, MS.cadence);   /* voie couple de l'hybride OSF sous 40 tr/min (29/10, inc/loi_osf.h) */
+						MS.i_q_setpoint_temp=loi_osf_plancher_sur(MS.i_q_setpoint_temp, MS.cadence, ui16_erps, MS.torque_on_crank, couple_zero.zero);   /* voie couple de l'hybride OSF (29/10), sur la vitesse du moteur et sous appui reel (30/10) */
 #endif
 						//limit setpoint to the max value according to the current setting.
 						if(MS.i_q_setpoint_temp>phase_current_max_scaled)MS.i_q_setpoint_temp = phase_current_max_scaled;

@@ -94,15 +94,16 @@ print("route : filtre 1/32 et zero sur 48 impulsions :" if ROUTE else "banc : fi
 section("Loi type OSF (29/10) : profil par niveau et plancher de cadence")
 m_prof = re.search(r"route_profil_niveau\[5\] = \{([^}]*)\}", pp_parser)
 profil = [int(x) for x in m_prof.group(1).split(",")] if m_prof else None
-plancher = "loi_osf_plancher(MS.i_q_setpoint_temp, MS.cadence)" in pp_main
+plancher = "loi_osf_plancher_sur(MS.i_q_setpoint_temp, MS.cadence, ui16_erps, MS.torque_on_crank, couple_zero.zero)" in pp_main   # 30/10
+reprise30 = "couple_zero.zero+30&&PAS_counter" in pp_main
 profil_ebics = "assist_profile[k][l]=(k+1)*20" in pp_parser
-print(f"   profil route {profil} ; profil EBiCS (k+1) x 20 present : {profil_ebics} ; plancher dans update_setpoint : {plancher}")
+print(f"   profil route {profil} ; profil EBiCS (k+1) x 20 present : {profil_ebics} ; plancher (vitesse moteur, sous appui) dans update_setpoint : {plancher} ; reprise du couple a zero + 30 mV : {reprise30}")
 if ROUTE:
     print("route : profil 31 / 43 / 57 / 67 / 110 et plancher de cadence :",
-          "OK" if profil == [31, 43, 57, 67, 110] and plancher and not profil_ebics else "A VERIFIER")
+          "OK" if profil == [31, 43, 57, 67, 110] and plancher and reprise30 and not profil_ebics else "A VERIFIER")
 else:
     print("banc : profil EBiCS et pas de plancher (inchange) :",
-          "OK" if profil is None and not plancher and profil_ebics else "A VERIFIER")
+          "OK" if profil is None and not plancher and not reprise30 and profil_ebics else "A VERIFIER")
 
 section("E100 (30/10) : courants vus par le trip en route")
 e100_trip = "bench_can_sample(route_ph_trip[0], route_ph_trip[1], route_ph_trip[2])" in pp_main

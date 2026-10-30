@@ -64,6 +64,28 @@ int main(void)
     CHECK(b10 < 59 && b10 >= 4 * a10, "10 tr/min : x 4 sous le plafond (%ld contre %ld)", (long)b10, (long)a10);
     CHECK(consigne(0, 400, 63, 1, 59) == 0, "cadence 0 : consigne 0 (cadence^(1/11) = 0)");
 
+    /* 5. incident du 30/10 (perf-niveau5-12h21) : pedale relachee (742 mV pour un zero de 738), couple filtre perime
+          (100 mV), niveau 5 (profil 110), plafond 98. Avant : plancher sur la cadence du pedalier -> 98. Apres : rien. */
+    {
+        int32_t brute11 = consigne(11, 100, 110, 0, 1000), brute24 = consigne(24, 104, 110, 0, 1000);
+        int32_t avant11 = consigne(11, 100, 110, 1, 98);
+        int32_t apres11 = loi_osf_plancher_sur(brute11, 11, 243, 742, 738); if (apres11 > 98) apres11 = 98;
+        int32_t apres24 = loi_osf_plancher_sur(brute24, 24, 284, 740, 738); if (apres24 > 98) apres24 = 98;
+        printf("incident : cadence 11, erps 243 -> avant %ld, apres %ld ; cadence 24, erps 284 -> apres %ld (loi seule %ld)\n",
+               (long)avant11, (long)apres11, (long)apres24, (long)brute24);
+        CHECK(avant11 == 98, "incident rejoue : l'ancien plancher donnait le plafond (%ld)", (long)avant11);
+        CHECK(apres11 == brute11 && apres11 < 35, "cadence 11 sans appui : pas de plancher (%ld)", (long)apres11);
+        CHECK(apres24 == brute24, "cadence 24, moteur a 64 tr/min equivalents : pas de plancher (%ld)", (long)apres24);
+        /* appui reel mais moteur rapide (roue libre du pedalier) : pas d'amplification */
+        int32_t b = consigne(15, 300, 110, 0, 1000);
+        CHECK(loi_osf_plancher_sur(b, 15, 284, 1200, 738) == b, "appui, pedalier lent, moteur rapide : pas de plancher");
+        /* vrai demarrage : pedalier et moteur lents, appui fort -> plancher x 2 */
+        int32_t d = consigne(20, 250, 60, 0, 1000);
+        CHECK(loi_osf_plancher_sur(d, 20, 88, 1200, 738) == loi_osf_plancher(d, 20), "demarrage : plancher x 2 conserve");
+        CHECK(loi_osf_plancher_sur(d, 20, 88, 768, 738) == d, "appui de 30 mV (seuil) : pas de plancher");
+        CHECK(loi_osf_plancher_sur(d, 20, 88, 769, 738) == loi_osf_plancher(d, 20), "appui de 31 mV : plancher");
+    }
+
     printf("== %d verifications OK, %d ECHECS -> %s\n", n_ok, n_ko, n_ko ? "ROUGE" : "VERT");
     return n_ko ? 1 : 0;
 }

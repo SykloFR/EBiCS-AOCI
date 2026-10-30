@@ -21,4 +21,18 @@ static inline int32_t loi_osf_plancher(int32_t consigne, int32_t cadence)
     return (consigne * LOI_OSF_CADENCE_CROISEMENT) / cadence;
 }
 
+/* 30/10 (correctif-assistance-sans-appui-attendu-20261030.md) : le plancher traduit la voie couple (i_q proportionnel au
+   couple / vitesse du MOTEUR). Sa cadence est donc max(cadence du pedalier, erps ramene au pedalier) : moteur entraine
+   plus vite que les manivelles (roue libre du pedalier), pas d'amplification. Et il ne s'applique que sous appui reel
+   (couple instantane > zero + LOI_OSF_APPUI_MV), jamais sur un couple filtre perime. */
+#define LOI_OSF_ERPS_PAR_TRMIN_X10 44   /* erps par tr/min de pedalier x 10 (B1.2, B3 : 4,4 a 5,0 ; 4,4 = sens sur) */
+#define LOI_OSF_APPUI_MV           30   /* mV au-dessus du zero de couple */
+
+static inline int32_t loi_osf_plancher_sur(int32_t consigne, int32_t cadence, int32_t erps, int32_t couple_mv, int32_t zero_mv)
+{
+    if (couple_mv - zero_mv <= LOI_OSF_APPUI_MV) return consigne;
+    int32_t cad_moteur = (erps * 10) / LOI_OSF_ERPS_PAR_TRMIN_X10;
+    return loi_osf_plancher(consigne, cadence > cad_moteur ? cadence : cad_moteur);
+}
+
 #endif /* LOI_OSF_H_ */
