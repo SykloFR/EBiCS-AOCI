@@ -253,8 +253,8 @@ const PROTOCOLES = {
     { id: "ARRET", d: 20, bpm: null, res: 10, txt: "Arrête de pédaler. Touche le boîtier : chaud ?",
       att: "consigne 0, pont coupé" } ] },
   /* performance (30/10), essai-performance-niveau5-attendu-20261030.md : niveau 5, pic de puissance tenu 1 min, haute
-     cadence, puis refroidissement ; alarmes i_q 128, Ibat 19 A, T controleur 65 degres */
-  b5: { titre: "Performance : niveau 5, pic tenu 1 min (5 min 30)", nom: "perf-niveau5", iqMax: 128, phases: [
+     cadence, puis refroidissement ; alarmes i_q 140 (plafond 130, 30/10), Ibat 19 A, T controleur 65 degres */
+  b5: { titre: "Performance : niveau 5, pic tenu 1 min (5 min 30)", nom: "perf-niveau5", iqMax: 140, phases: [
     { id: "R0", d: 15, bpm: null, res: 10, txt: "Repos. Afficheur au niveau 5.", att: "niveau 9, défaut 0" },
     { id: "W55", d: 30, bpm: 55, res: 20, txt: "Échauffement : 55 tr/min, appui normal.", att: "assistance établie" },
     { id: "P50", d: 60, bpm: 50, res: 45, txt: "Résistance 45 %. 50 tr/min, appui FORT et régulier, tiens 1 min.",
@@ -559,10 +559,10 @@ function bmsNotif(e) {
 function alarmesBms() {
   const a = [];
   if (!bms || Date.now() - bms.t > 5000) return a;
-  if (bms.i_decharge > 16) a.push(`BMS : décharge ${bms.i_decharge.toFixed(1)} A (> 16) : arrête`);
+  if (bms.i_decharge > 19) a.push(`BMS : décharge ${bms.i_decharge.toFixed(1)} A (> 19) : arrête`);   // 30/10 : 18 A max + 1 (avant 16)
   if (bms.tmax > 50) a.push(`BMS : cellules à ${bms.tmax} °C (> 50) : arrête`);
   if (bms.tmos > 70) a.push(`BMS : MOS à ${bms.tmos} °C (> 70) : arrête`);
-  $("tbI").classList.toggle("mal", bms.i_decharge > 16); $("tbTmax").classList.toggle("mal", bms.tmax > 50);
+  $("tbI").classList.toggle("mal", bms.i_decharge > 19); $("tbTmax").classList.toggle("mal", bms.tmax > 50);
   $("tbTmos").classList.toggle("mal", bms.tmos > 70);
   return a;
 }
