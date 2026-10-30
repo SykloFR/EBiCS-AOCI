@@ -388,8 +388,9 @@ if ROUTE:
     print(f"rampe au reveil de MOE (lot A) : route_rampe_debut ecrit au MOE = 1, lu par {nom_us} avec route_rampe_active ({lec_r}) :",
           "OK" if nom_us in lec_r and len(lec_r) >= 2 and lit_adresse(us, "route_rampe_active") else "A VERIFIER")
     lec_n = fonctions_lisant("route_niveau_demande")
-    print(f"socle (28/10) : route_niveau_demande ecrit par processCAN_Rx, lu par main avec route_l5 ({lec_n}) :",
-          "OK" if {"processCAN_Rx", "main"} <= set(lec_n) and "main" in fonctions_lisant("route_l5") else "A VERIFIER")
+    print(f"socle (28/10) : route_niveau_demande ecrit par processCAN_Rx, lu par main ({lec_n}) ; route_l5 lu par main "
+          f"seulement si le timer L5 est compile (30/10 : retire) :",
+          "OK" if {"processCAN_Rx", "main"} <= set(lec_n) and (("main" in fonctions_lisant("route_l5")) == timer_l5) else "A VERIFIER")
     lecteurs = fonctions_lisant("pedalier_exti12")
     print(f"pedalier : trame E20F, compteurs lus hors interruption par {lecteurs} :",
           "OK" if any(f != "EXTI10_15_IRQHandler" for f in lecteurs) and fonctions_lisant("pedalier_diag") else "A VERIFIER")
