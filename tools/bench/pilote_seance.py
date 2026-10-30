@@ -54,9 +54,10 @@ class Capture:
         with self.verrou:
             e = {"t_pc": round(time.time() - self.t0, 3) if self.actif() else None,
                  "t_trame": self.t_trame, "heure": time.strftime("%H:%M:%S"), "texte": str(texte)[:300]}
-            self.journal.append(e)
-            if self.nom:
-                self._ecrire_journal()
+            if self.actif():                     # 30/10 : hors capture, l'evenement n'est plus ajoute au journal precedent
+                self.journal.append(e)
+                if self.nom:
+                    self._ecrire_journal()
         return e
 
     def externe(self, source, champs):

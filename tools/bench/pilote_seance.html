@@ -66,6 +66,7 @@
         <button class="go" id="btnGo">Démarrer l'essai</button>
         <button class="stop" id="btnStop" disabled>Arrêter</button>
         <span class="note">L'arrêt d'urgence reste physique : coupure de l'alimentation.</span>
+        <label class="note"><input type="checkbox" id="metroSon"> métronome sonore</label>
       </div>
       <div id="phase">
         <div id="phaseId">Prêt</div>
@@ -277,7 +278,7 @@ function metronome(bpm) {
   metro.timer = setInterval(() => {
     while (metro && metro.suivant < a.currentTime + 0.12) {
       const t = metro.suivant;
-      bip(1500, 0.04, t, 0.12);
+      if ($("metroSon").checked) bip(1500, 0.04, t, 0.12);   /* 30/10 : coupé par défaut, le point visuel reste */
       setTimeout(() => { $("point").classList.add("flash"); setTimeout(() => $("point").classList.remove("flash"), 90); },
                  Math.max(0, (t - a.currentTime) * 1000));
       metro.suivant += metro.p;
@@ -410,8 +411,11 @@ async function sonder() {
     for (const a of alarmesBms()) al.push(a);
     const txt = al.join(" — ");
     $("alarme").style.display = txt ? "block" : "none"; $("alarme").textContent = txt;
-    if (txt && txt !== alarmeCourante) { for (let i = 0; i < 4; i++) setTimeout(() => bip(1800, 0.18, undefined, 0.3), i * 250); journal("ALARME : " + txt); }
-    alarmeCourante = txt;
+    /* 30/10 : la cle d'alarme ignore les valeurs (sinon « i_q = 57 » puis « 58 » rejouaient les bips a chaque mesure) ;
+       bips et journal seulement dans la page qui conduit l'essai (une page restee ouverte ailleurs n'ecrit plus rien) */
+    const cle = al.map(a => a.replace(/[-\d.,]+/g, "#")).join(" — ");
+    if (txt && cle !== alarmeCourante && run) { for (let i = 0; i < 4; i++) setTimeout(() => bip(1800, 0.18, undefined, 0.3), i * 250); journal("ALARME : " + txt); }
+    alarmeCourante = txt ? cle : "";
   } catch (_) { $("bServeur").textContent = "serveur injoignable"; $("bServeur").className = "badge mal"; }
 }
 setInterval(sonder, 250); sonder();
