@@ -40,11 +40,11 @@ int main(void)
     CHECK(mono, "plancher decroissant avec la cadence");
 
     /* 2. profil route */
-    static const int attendu[5] = {31, 43, 57, 67, 165};   /* lot Pmax niveau 5 (30/10) : 110 -> 140 -> 165 */
+    static const int attendu[5] = {31, 43, 57, 67, 140};   /* 30/10 soir : niveau 5 110 -> 140 */
       /* lot B3 (30/10) : niveau 3 63 -> 57 */
     int ok = 1;
     for (int k = 0; k < 5; k++) if (profil_route[k] != attendu[k]) ok = 0;
-    CHECK(ok, "ROUTE_PROFIL_NIVEAU = 31 / 43 / 57 / 67 / 165");
+    CHECK(ok, "ROUTE_PROFIL_NIVEAU = 31 / 43 / 57 / 67 / 140");
 
     /* 3. rapports a 50 tr/min (pas de plancher), couple filtre 190 mV (B1.3) et 300 mV, contre l'avant (20/40/60) */
     for (int t = 190; t <= 300; t += 110) {

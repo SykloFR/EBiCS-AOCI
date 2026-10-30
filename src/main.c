@@ -904,8 +904,7 @@ int main(void)
     		/* socle (28/10) : plafond batterie du niveau (R2) et phase 1,75 x batterie du niveau (R3), ecretee a MP.phase_current_max */
     		MP.battery_current_max=socle_ibat_niveau_mA(level_to_array_element[MS.assist_level], BATTERYCURRENT_MAX);
     		phase_current_max_scaled=socle_phase_niveau_pts(level_to_array_element[MS.assist_level], MP.battery_current_max,
-    		                                                 route_pts_par_A_x100, MP.phase_current_max,
-    		                                                 level_to_array_element[MS.assist_level] == 5u ? SOCLE_PHASE_SUR_BAT_X100_L5 : SOCLE_PHASE_SUR_BAT_X100);
+    		                                                 route_pts_par_A_x100, MP.phase_current_max, SOCLE_PHASE_SUR_BAT_X100);
 #else
     		phase_current_max_scaled=MP.phase_current_max*MP.assist_settings[level_to_array_element[MS.assist_level]][0]/100;
 #endif

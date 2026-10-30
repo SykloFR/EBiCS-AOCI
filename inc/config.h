@@ -169,14 +169,12 @@
    sauf PH_CURRENT_MAX ramene a 30 pts. _U_MAX reste U_MAX_BENCH (1500) : chaine ADC validee seulement CCR <= 1738. */
 #ifdef ROUTE_BUILD
 #undef PH_CURRENT_MAX
-#define PH_CURRENT_MAX 165       // ~53 A de phase crete (lot Pmax niveau 5, 30/10 : 18 A batterie des 45 tr/min a 33 V,
-                                 // calcul-pmax-niveau5-20261030.py ; avant 130, puis 98)
+#define PH_CURRENT_MAX 130       // ~41 A de phase (30/10 soir : 2,3 x 18 A, niveau 5 a 129 pts ; avant 98). Mesure P60 :
+                                 // 98 pts ne donnaient que 13,6 A batterie a 58 tr/min (perf-niveau5-16h03)
 #define SOCLE_PHASE_SUR_BAT_X100 230   // plafond de phase par niveau = 2,3 x courant batterie du niveau (avant 1,75, Z8 48 V)
-#define SOCLE_PHASE_SUR_BAT_X100_L5 293 // niveau 5 : 2,93 x 18 A = 165 pts (Pmax des 40-50 tr/min) ; niveaux 1-4 a 2,3 x
-#define ROUTE_WALK_PCT 17        // marche assistee : 17 % de 165 = 28 pts, comme 30 % de 98 avant
+#define ROUTE_WALK_PCT 22        // marche assistee : 22 % de 130 = 28 pts, comme 30 % de 98 avant
 #undef PH_CURRENT_TRIP
-#define PH_CURRENT_TRIP 300      // ~95 A : trip de harnais, 1,8 x le plafond du niveau 5, sous le 1er seuil d'origine (100 A)
-                                 // (lot Pmax niveau 5, 30/10 ; avant 245, puis 150),
+#define PH_CURRENT_TRIP 245      // 78 A : trip de harnais, 2,5 x le plafond de phase du niveau 5 (lot B3, 30/10 ; avant 150),
                                  // A REMONTER A 377 (production, 120 A) AVANT TOUT BUILD CLIENT
 #undef BATTERYCURRENT_MAX
 #define BATTERYCURRENT_MAX 18000 // mA : controleur 18 A (decision de Yanni, 30/10 ; avant 15000, firmware AOCI 36V 15A)
@@ -191,7 +189,7 @@
 #define SPEEDLIMIT 1500          // 15 km/h (x100) : plafond tant que la chaine ADC haute modulation n'est pas mesuree
 #define ROUTE_NIVEAU_MAX 9       // code assist_level (pas un nombre de niveaux) : 9 = niveau 5 de l'afficheur 5 niveaux
                                  // (codes 2, 4, 6, 8, 9 = niveaux 1 a 5) ; lot B3, 30/10 : niveaux 1 a 5 (avant 6)
-#define ROUTE_PROFIL_NIVEAU {31, 43, 57, 67, 165}   // lot Pmax niveau 5 (30/10) : 165 = saturation a ~100 W de jambes a 45 tr/min ; avant 140, 110 ; loi type OSF (29/10, loi-type-osf-attendu-20261029.md) : profil plat
+#define ROUTE_PROFIL_NIVEAU {31, 43, 57, 67, 140}   // 30/10 soir : niveau 5 110 -> 140 (Yanni : plus d'assistance) ; loi type OSF (29/10, loi-type-osf-attendu-20261029.md) : profil plat
                                  // par niveau 1 a 5, vise P_bat / P_pedale = 1,6 / 2,2 / 2,8 / 3,4 / 5,6 (Z8-OSF HYBRID),
                                  // cale sur eta = 0,83 (confirme par le calage du 29/10) ; niveau 3 : 63 -> 57 (mesure 3,1, lot B3)
 #define DYN_T_ECH 45             // 30/10 : echantillonnage ADC en ticks (7,5 cycles x 6), fin = valeur retenue
