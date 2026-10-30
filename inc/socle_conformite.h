@@ -18,13 +18,15 @@ static inline int32_t socle_ibat_niveau_mA(uint8_t niveau, int32_t ibat_max_mA)
     return ibat_max_mA * socle_ibat_pct[niveau] / 100;
 }
 
-/* R3 : plafond de phase = 1,75 x courant batterie du niveau (regle P29 du Z8), en points (pts_par_A_x100 / 100 pts par A),
-   arrondi par defaut, ecrete a ph_max_pts ; 0 au niveau 0 (pas d'assistance, comme assist_settings[0][0]) */
-static inline int32_t socle_phase_niveau_pts(uint8_t niveau, int32_t ibat_mA, int32_t pts_par_A_x100, int32_t ph_max_pts)
+/* R3 : plafond de phase = rapport_x100 / 100 x courant batterie du niveau, en points (pts_par_A_x100 / 100 pts par A),
+   arrondi par defaut, ecrete a ph_max_pts ; 0 au niveau 0 (pas d'assistance, comme assist_settings[0][0]).
+   Rapport : 1,75 (regle P29 du Z8, 48 V) jusqu'au 30/10 ; 2,3 en route depuis (SOCLE_PHASE_SUR_BAT_X100, config.h) */
+static inline int32_t socle_phase_niveau_pts(uint8_t niveau, int32_t ibat_mA, int32_t pts_par_A_x100, int32_t ph_max_pts,
+                                             int32_t rapport_x100)
 {
     int64_t p;
     if (niveau == 0u) return 0;
-    p = (int64_t)ibat_mA * 175 * pts_par_A_x100 / 10000000;
+    p = (int64_t)ibat_mA * rapport_x100 * pts_par_A_x100 / 10000000;
     return p > ph_max_pts ? ph_max_pts : (int32_t)p;
 }
 

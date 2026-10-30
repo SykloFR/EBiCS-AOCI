@@ -34,13 +34,13 @@ int main(void)
     /* 2. R3 phase 1,75 x : 0, 29, 49, 59, 69, 82 pts sans ecretage ; ecretage a 30 ; a 120 rien n'est ecrete */
     static const int32_t ph[6] = {0, 29, 49, 59, 69, 82};
     for (uint8_t n = 0; n < 6; n++) {
-        int32_t p = socle_phase_niveau_pts(n, socle_ibat_niveau_mA(n, IBAT_MAX), PTS_PAR_A_X100, 1000);
+        int32_t p = socle_phase_niveau_pts(n, socle_ibat_niveau_mA(n, IBAT_MAX), PTS_PAR_A_X100, 1000, 175);
         CHECK(p == ph[n], "phase niveau %u : %ld (attendu %ld)", n, (long)p, (long)ph[n]);
-        CHECK(socle_phase_niveau_pts(n, socle_ibat_niveau_mA(n, IBAT_MAX), PTS_PAR_A_X100, 30) == (ph[n] > 30 ? 30 : ph[n]),
+        CHECK(socle_phase_niveau_pts(n, socle_ibat_niveau_mA(n, IBAT_MAX), PTS_PAR_A_X100, 30, 175) == (ph[n] > 30 ? 30 : ph[n]),
               "phase niveau %u ecretee a 30", n);
-        CHECK(socle_phase_niveau_pts(n, socle_ibat_niveau_mA(n, IBAT_MAX), PTS_PAR_A_X100, 120) == ph[n], "niveau %u sous 120", n);
+        CHECK(socle_phase_niveau_pts(n, socle_ibat_niveau_mA(n, IBAT_MAX), PTS_PAR_A_X100, 120, 175) == ph[n], "niveau %u sous 120", n);
         /* lot B2 (29/10) : plafond 60, niveaux 1 a 3 = 29 / 49 / 59 non ecretes, 4 et 5 ecretes a 60 */
-        CHECK(socle_phase_niveau_pts(n, socle_ibat_niveau_mA(n, IBAT_MAX), PTS_PAR_A_X100, 60) == (ph[n] > 60 ? 60 : ph[n]),
+        CHECK(socle_phase_niveau_pts(n, socle_ibat_niveau_mA(n, IBAT_MAX), PTS_PAR_A_X100, 60, 175) == (ph[n] > 60 ? 60 : ph[n]),
               "phase niveau %u ecretee a 60 (lot B2)", n);
     }
 
@@ -49,9 +49,19 @@ int main(void)
         static const int32_t ib18[6] = {6480, 6480, 10800, 12960, 15120, 18000}, ph18[6] = {0, 35, 59, 71, 83, 98};
         for (uint8_t n = 0; n < 6; n++) {
             CHECK(socle_ibat_niveau_mA(n, 18000) == ib18[n], "18 A : Ibat niveau %u : %ld", n, (long)socle_ibat_niveau_mA(n, 18000));
-            int32_t p18 = socle_phase_niveau_pts(n, socle_ibat_niveau_mA(n, 18000), PTS_PAR_A_X100, 98);
+            int32_t p18 = socle_phase_niveau_pts(n, socle_ibat_niveau_mA(n, 18000), PTS_PAR_A_X100, 98, 175);
             CHECK(p18 == ph18[n], "18 A : phase niveau %u : %ld (attendu %ld)", n, (long)p18, (long)ph18[n]);
         }
+    }
+
+    /* 30/10 soir : rapport 2,3, plafond 130 : 46 / 77 / 93 / 109 / 129 pts (P60 a 98 pts = 13,6 A batterie seulement) */
+    {
+        static const int32_t ph23[6] = {0, 46, 77, 93, 109, 129};
+        for (uint8_t n = 0; n < 6; n++) {
+            int32_t p23 = socle_phase_niveau_pts(n, socle_ibat_niveau_mA(n, 18000), PTS_PAR_A_X100, 130, 230);
+            CHECK(p23 == ph23[n], "2,3 x : phase niveau %u : %ld (attendu %ld)", n, (long)p23, (long)ph23[n]);
+        }
+        CHECK(socle_phase_niveau_pts(5, 18000, PTS_PAR_A_X100, 120, 230) == 120, "2,3 x : ecretage au plafond");
     }
 
     /* 3. codes de niveau <-> indices (level_to_array_element de main.c) */

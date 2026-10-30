@@ -169,7 +169,10 @@
    sauf PH_CURRENT_MAX ramene a 30 pts. _U_MAX reste U_MAX_BENCH (1500) : chaine ADC validee seulement CCR <= 1738. */
 #ifdef ROUTE_BUILD
 #undef PH_CURRENT_MAX
-#define PH_CURRENT_MAX 98        // ~31,2 A de phase (lot B3, 30/10 : 1,75 x 18 A du niveau 5 ; avant 60)
+#define PH_CURRENT_MAX 130       // ~41 A de phase (30/10 soir : 2,3 x 18 A, niveau 5 a 129 pts ; avant 98). Mesure P60 :
+                                 // 98 pts ne donnaient que 13,6 A batterie a 58 tr/min (perf-niveau5-16h03)
+#define SOCLE_PHASE_SUR_BAT_X100 230   // plafond de phase par niveau = 2,3 x courant batterie du niveau (avant 1,75, Z8 48 V)
+#define ROUTE_WALK_PCT 22        // marche assistee : 22 % de 130 = 28 pts, comme 30 % de 98 avant
 #undef PH_CURRENT_TRIP
 #define PH_CURRENT_TRIP 245      // 78 A : trip de harnais, 2,5 x le plafond de phase du niveau 5 (lot B3, 30/10 ; avant 150),
                                  // A REMONTER A 377 (production, 120 A) AVANT TOUT BUILD CLIENT

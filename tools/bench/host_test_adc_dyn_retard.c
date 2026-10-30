@@ -211,16 +211,16 @@ int main(void)
 			if (f || (int)(dd * 2) % 6 == 0 || dd == 6.0)
 				printf("placement U %ld, %4.1f deg/periode : %d fautes, %5.1f %% tenues, suite max %d\n", us[i], dd, f, 100.0 * t / 36000, sm);
 		}
-	/* 2. chaine complete, i_q au plafond (98 pts) */
+	/* 2. chaine complete, i_q au plafond (PH_CURRENT_MAX) */
 	int ko2 = 0;
 	for (unsigned i = 0; i < 4; i++)
 		for (double dd = 3.0; dd <= 15.0; dd += 1.0)
 			for (int combo = -1; combo < 3; combo++) {
-				chaine_t c = chaine(us[i], dd, 98.0, 0, combo);
-				int bad = c.trips || c.foc_faux || c.crete > 98.0 * 1.05;
+				chaine_t c = chaine(us[i], dd, (double)PH_CURRENT_MAX, 0, combo);
+				int bad = c.trips || c.foc_faux || c.crete > PH_CURRENT_MAX * 1.05;
 				if (bad) ko2 = 1;
 				if (bad || (combo < 0 && (dd == 6.0 || dd == 12.0)))
-					printf("chaine U %ld, %4.1f deg, combinaison %2d : %d trips, %d periodes FOC fausses, crete %.0f (i 98), %.1f %% tenues, %d butees rejetees%s\n",
+					printf("chaine U %ld, %4.1f deg, combinaison %2d : %d trips, %d periodes FOC fausses, crete %.0f (i plafond), %.1f %% tenues, %d butees rejetees%s\n",
 					       us[i], dd, combo, c.trips, c.foc_faux, c.crete, 100.0 * c.tenues / c.n, c.rejetees, bad ? "  <-- ECHEC" : "");
 			}
 	ko |= ko2;

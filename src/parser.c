@@ -131,7 +131,11 @@ void InitEEPROM(MotorParams_t* MP){
 	MP->PAS_timeout = PAS_TIMEOUT;
 	MP->ramp_end = RAMP_END;
 	MP->walk_assist_speed = 600; // default 6.0 km/h
+#ifdef ROUTE_BUILD
+	MP->walk_assist_current = ROUTE_WALK_PCT; // 30/10 : meme courant de marche malgre PH_CURRENT_MAX 130
+#else
 	MP->walk_assist_current = 30; // default 80%
+#endif
 	MP->system_voltage = SYSTEM_VOLTAGE;
 	MP->max_voltage = MAX_VOLTAGE;
 	MP->decay_base =255;
