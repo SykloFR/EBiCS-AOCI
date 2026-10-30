@@ -62,6 +62,9 @@ int main(void)
             CHECK(p23 == ph23[n], "2,3 x : phase niveau %u : %ld (attendu %ld)", n, (long)p23, (long)ph23[n]);
         }
         CHECK(socle_phase_niveau_pts(5, 18000, PTS_PAR_A_X100, 120, 230) == 120, "2,3 x : ecretage au plafond");
+        /* lot Pmax niveau 5 (30/10) : niveau 5 a 2,93 x 18 A = 165 pts, plafond 165 */
+        CHECK(socle_phase_niveau_pts(5, 18000, PTS_PAR_A_X100, 165, 293) == 165, "niveau 5 : 165 pts (%ld)",
+              (long)socle_phase_niveau_pts(5, 18000, PTS_PAR_A_X100, 165, 293));
     }
 
     /* 3. codes de niveau <-> indices (level_to_array_element de main.c) */

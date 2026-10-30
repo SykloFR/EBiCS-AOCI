@@ -99,8 +99,8 @@ reprise30 = "couple_zero.zero+30&&PAS_counter" in pp_main
 profil_ebics = "assist_profile[k][l]=(k+1)*20" in pp_parser
 print(f"   profil route {profil} ; profil EBiCS (k+1) x 20 present : {profil_ebics} ; plancher (vitesse moteur, sous appui) dans update_setpoint : {plancher} ; reprise du couple a zero + 30 mV : {reprise30}")
 if ROUTE:
-    print("route : profil 31 / 43 / 57 / 67 / 140 et plancher de cadence :",
-          "OK" if profil == [31, 43, 57, 67, 140] and plancher and reprise30 and not profil_ebics else "A VERIFIER")
+    print("route : profil 31 / 43 / 57 / 67 / 165 et plancher de cadence :",
+          "OK" if profil == [31, 43, 57, 67, 165] and plancher and reprise30 and not profil_ebics else "A VERIFIER")
 else:
     print("banc : profil EBiCS et pas de plancher (inchange) :",
           "OK" if profil is None and not plancher and not reprise30 and profil_ebics else "A VERIFIER")
@@ -332,11 +332,11 @@ section("Echelle de courant (decision de revue du 27/10/2026)")
 mv = {k: v for k, v in re.findall(r"^#define (TRIGGER_OFFSET_ADC_DYN|DYN_STAB_DEFAUT|DYN_STAB_DYN|DYN_SUITE_MAX|U_MAX_BENCH|PH_CURRENT_TRIP|PH_CURRENT_MAX|BENCH_WALK_ILIM_MAX|BRIDE_ERPS_DEBUT|BRIDE_ERPS_FIN|SPEEDLIMIT|ROUTE_NIVEAU_MAX|ROUTE_VARIANTE_REPLI|BATTERYCURRENT_MAX|VOLTAGE_MIN|REVERSE|CURRENT_SIGN) (\S+)", macros, re.M)}
 print("macros :", mv)
 if ROUTE:
-    attendu_r = {"PH_CURRENT_TRIP": "245", "PH_CURRENT_MAX": "130", "SPEEDLIMIT": "1500", "ROUTE_NIVEAU_MAX": "9",
+    attendu_r = {"PH_CURRENT_TRIP": "300", "PH_CURRENT_MAX": "165", "SPEEDLIMIT": "1500", "ROUTE_NIVEAU_MAX": "9",
                  "BATTERYCURRENT_MAX": "18000", "U_MAX_BENCH": "1920L", "TRIGGER_OFFSET_ADC_DYN": "65", "DYN_STAB_DEFAUT": "450", "DYN_STAB_DYN": "350", "DYN_SUITE_MAX": "16", "VOLTAGE_MIN": "1773", "REVERSE": "1", "CURRENT_SIGN": "1",
                  "ROUTE_VARIANTE_REPLI": "2"}
     ecarts = {k: (mv.get(k), v) for k, v in attendu_r.items() if mv.get(k) != v}
-    print("seuils route lot B3 (trip de harnais 245 / 130 / 15 km/h / niveau 5 / 18 A / U_MAX 1920 / avance dyn 65 / etablissement 450 et 350 / suite tenue 16 / 30 V / REVERSE +1 / CURRENT_SIGN +1) :",
+    print("seuils route lot B3 (trip de harnais 300 / 165 / 15 km/h / niveau 5 / 18 A / U_MAX 1920 / avance dyn 65 / etablissement 450 et 350 / suite tenue 16 / 30 V / REVERSE +1 / CURRENT_SIGN +1) :",
           "OK" if not ecarts else f"A VERIFIER {ecarts}")
 else:
     print("banc : pas de repli de variante (ROUTE_VARIANTE_REPLI absente) :", "OK" if "ROUTE_VARIANTE_REPLI" not in mv else "A VERIFIER")
