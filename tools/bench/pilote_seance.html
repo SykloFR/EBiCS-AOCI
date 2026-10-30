@@ -234,6 +234,23 @@ const PROTOCOLES = {
     { id: "C40", d: 45, bpm: 45, res: 40, txt: "Résistance 40 %. Toujours 45 tr/min, effort régulier.",
       att: "consigne 0 ; puissance home trainer plus haute" },
     { id: "ARRET", d: 15, bpm: null, res: 10, txt: "Arrête de pédaler.", att: "" } ] },
+  /* lot B3 (30/10), lot-B3-forte-modulation-18A-attendu-20261030.md : mode normal (50) puis dynamique (60, 68 tr/min) a
+     faible charge, puis plafond du niveau ; alarme i_q a 1,3 x le plafond du niveau 5 (98) */
+  b3: { titre: "B3 : forte modulation, niveau 3 (4 min 30)", nom: "lotB3-niveau3", iqMax: 128, phases: [
+    { id: "R0", d: 15, bpm: null, res: 10, txt: "Repos. Afficheur au niveau 3 (ou 5 pour le 2e passage).",
+      att: "niveau 6 (ou 9), défaut 0" },
+    { id: "N50", d: 30, bpm: 50, res: 10, txt: "Pédale à 50 tr/min (un tour par bip), appui normal.",
+      att: "mode normal : référence i_q, ondulation" },
+    { id: "M60", d: 30, bpm: 60, res: 10, txt: "Monte à 60 tr/min, appui normal.",
+      att: "entrée en mode dynamique ; i_q suit la consigne" },
+    { id: "M68", d: 30, bpm: 68, res: 10, txt: "Monte à 68 tr/min, appui normal.",
+      att: "mode dynamique établi ; u_abs vers 1800 ; i_q suit encore" },
+    { id: "C45", d: 40, bpm: 45, res: 40, txt: "Résistance 40 %. 45 tr/min, appui fort.",
+      att: "plafond du niveau (71 pts au niveau 3), Ibat ≤ 13 A" },
+    { id: "C55", d: 40, bpm: 55, res: 40, txt: "Résistance 40 %. 55 tr/min, appui fort.",
+      att: "plafond et forte modulation ensemble, aucun défaut" },
+    { id: "ARRET", d: 20, bpm: null, res: 10, txt: "Arrête de pédaler. Touche le boîtier : chaud ?",
+      att: "consigne 0, pont coupé" } ] },
   libre: { titre: "Capture libre (durée réglable)", nom: "capture-libre-e013e55", libre: true, phases: [
     { id: "L", d: 60, bpm: null, txt: "Capture en cours.", att: "" } ] }
 };
@@ -384,7 +401,7 @@ async function sonder() {
     const sIq = seuilIq(), al = [];
     if (e.actif && L.defaut) al.push(`DÉFAUT ${L.defaut} : arrête et coupe l'alimentation`);
     if (e.actif && L.iq !== null && Math.abs(L.iq) > sIq) al.push(`i_q = ${L.iq} pts (> ${sIq}) : arrête et coupe l'alimentation`);
-    if (e.actif && L.ibat !== null && L.ibat > 16) al.push(`Ibat = ${L.ibat} A (> 16) : arrête et coupe la batterie`);
+    if (e.actif && L.ibat !== null && L.ibat > 19) al.push(`Ibat = ${L.ibat} A (> 19) : arrête et coupe la batterie`);   /* lot B3 : 18 A */
     if (e.actif && L.vbat !== null && L.vbat > 5 && L.vbat < 31) al.push(`Vbat = ${L.vbat} V (< 31) : arrête`);
     if (e.actif && L.vitesse !== null && L.vitesse >= 17.5 && L.iq_amont > 0)
       al.push(`consigne ${L.iq_amont} pts à ${L.vitesse} km/h : bride non tenue, arrête`);
