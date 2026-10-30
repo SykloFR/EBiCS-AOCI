@@ -301,8 +301,9 @@ for k, l in enumerate(t0):
             args[r] = valeur(r, k)
         appels.append((args["r1"], args["r2"]))
 print("appels (canal, OCxPE) :", appels)
-ok_ccr = sorted(appels) == [(0, 8), (1, 8), (2, 8), (3, 0)]
-print("CH0-CH2 precharges (0x08), CH3 sans prechargement (0x00) :", "OK" if ok_ccr else "A VERIFIER")
+pe3 = 8 if ROUTE else 0   # 30/10 : en route, CC4 precharge (charge avec les CCR, plus d'ecriture immediate)
+ok_ccr = sorted(appels) == [(0, 8), (1, 8), (2, 8), (3, pe3)]
+print(f"CH0-CH2 precharges (0x08), CH3 {'precharge (0x08, route 30/10)' if ROUTE else 'sans prechargement (0x00)'} :", "OK" if ok_ccr else "A VERIFIER")
 
 section("Table Hall du sens de marche (27/10/2026) : valeurs initiales de Hall_xy dans .data")
 dump = run("arm-none-eabi-objdump", "-s", "-j", ".data", ELF)
