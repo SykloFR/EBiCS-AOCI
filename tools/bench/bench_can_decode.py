@@ -10,7 +10,7 @@ import can
 PERIODE = {0xE000: 20, 0xE001: 20, 0xE002: 50, 0xE100: 50, 0xE101: 50, 0xE102: 50, 0xE103: 50,
            0xE200: 100, 0xE201: 100, 0xE202: 100, 0xE203: 1000, 0xE204: 1000, 0xE205: 1000, 0xE207: 1000,
            0xE208: 20, 0xE209: 1000, 0xE20A: 20, 0xE20B: 20, 0xE20C: 20, 0xE20D: 20, 0xE20E: 1000,
-           0xE20F: 100, 0xE210: 20, 0xE211: 100, 0xE212: 1000, 0xE213: 1000}
+           0xE20F: 100, 0xE210: 20, 0xE211: 100, 0xE212: 1000, 0xE213: 1000, 0xE214: 1000}
 
 
 def decode(cle, d):
@@ -79,6 +79,8 @@ def decode(cle, d):
         return dict(timer1_hz=u16(1), regadc_hz=u16(3), boucle_hz=u16(5), pwm_pct=round(u8(7) * 0.4, 1))
     if cle == 0xE211:
         return dict(zero_mV=u16(1), dernier_mV=u16(3), n=u8(5), ticks_sans_hall=u16(6))
+    if cle == 0xE214:   # revue Fangyan B3 (30/10) : entrees dans l'ISR ADC par seconde, attendu 16 500
+        return dict(adc_isr_hz=u16(1))
     if cle == 0xE213:   # afficheur (route, 29/10) : releve des trames recues de l'afficheur, etat de l'extinction
         f = d[7]
         return dict(aff_n=u16(1), aff_age_ms=u16(3), part_tenues_pct=round(u8(5) * 100 / 256, 1), saturations_rejetees=u8(6), extinction=f & 3, bouton=f >> 2 & 1,

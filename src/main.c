@@ -352,9 +352,20 @@ volatile uint8_t route_niveau_demande = 2;
 socle_l5_t route_l5 = SOCLE_L5_INIT;
 uint32_t route_l5_prec = 0;
 uint16_t route_pts_par_A_x100 = PH_COUNTS_PER_A_X100;
+/* revue Fangyan du 30/10 (B3) : entrees dans ADC0_1_IRQHandler par seconde (E214), attendu 16 500 (une conversion par
+   periode PWM, 66 MHz / 4000) ; un declenchement manque donne moins */
+volatile uint32_t route_n_adc = 0;
+volatile uint16_t route_adc_hz = 0;
+static uint32_t route_adc_prec = 0;
+static uint16_t route_adc_ms = 0;
 void route_freq_ms(void)                          /* SysTick, 1 kHz */
 {
 	freq_diag_ms(&freq_diag, freq_n_isr, freq_n_trait, freq_n_boucle, ui_8_PWM_ON_Flag);
+	if(++route_adc_ms >= 1000u){
+		uint32_t n = route_n_adc;
+		route_adc_hz = freq_sat16(n - route_adc_prec);
+		route_adc_prec = n; route_adc_ms = 0;
+	}
 }
 volatile uint16_t pedalier_exti12 = 0;
 /* afficheur (29/10, inc/afficheur_aoci.h, correctif-afficheur-attendu-20261029.md) : extinction par appui long armee apres
@@ -2182,6 +2193,9 @@ void ADC0_1_IRQHandler(void)
     /* clear the ADC flag */
 	/* REVUE-PUISSANCE P5 : plus de rechargement du chien de garde dans l'interruption (il masquait un blocage de la boucle principale) */
     adc_interrupt_flag_clear(ADC1, ADC_INT_FLAG_EOIC);
+#ifdef ROUTE_BUILD
+    route_n_adc++;                                /* E214 : entrees par seconde (revue Fangyan B3) */
+#endif
     /* read ADC inserted group data register */
 
     __disable_irq();

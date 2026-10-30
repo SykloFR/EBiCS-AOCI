@@ -187,7 +187,7 @@ static int verifier_garde(void)
 	PER(1, 4, 0, 0, -2047);    if (r != DYN_REJETEE) { printf("garde : butee en periode tenue non rejetee\n"); ko = 1; }
 	PER(1, 4, 0, 0, -2047);    if (r != DYN_TENUE || t[2] > -SAT) { printf("garde : 2e butee en periode tenue masquee\n"); ko = 1; }
 	/* surintensite reelle : derniere valeur valide au-dessus du seuil de trip -> la butee passe */
-	m.garde = 0; m.suite = 0; m.val[0] = 260; m.val[1] = -130; m.val[2] = -130;
+	m.garde = 0; m.suite = 0; m.val[0] = PH_CURRENT_TRIP + 15; m.val[1] = -(PH_CURRENT_TRIP + 15) / 2; m.val[2] = -(PH_CURRENT_TRIP + 15) / 2;
 	PER(0, 7, 2047, -1000, -1047); if (r != DYN_MESUREE || t[0] < SAT) { printf("garde : surintensite reelle masquee\n"); ko = 1; }
 	/* suite bornee : DYN_SUITE_MAX periodes tenues, puis la mesure passe */
 	m.garde = 0; m.suite = 0;

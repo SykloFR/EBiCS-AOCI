@@ -179,8 +179,8 @@
 #undef BATTERYCURRENT_MAX
 #define BATTERYCURRENT_MAX 18000 // mA : controleur 18 A (decision de Yanni, 30/10 ; avant 15000, firmware AOCI 36V 15A)
 #undef U_MAX_BENCH
-#define U_MAX_BENCH 1920L        // 30/10 soir : 1920 (+6,7 %, CCR max ~1945), mesure validee par host_test_adc_dyn_retard (temps
-                                 // d'etablissement mesures, periodes tenues) ; lot B3 : 1800 ; avant 1500
+#define U_MAX_BENCH 1800L        // revue Fangyan du 30/10 (A4) : 1800 pour le premier roulage (1920 = plafond de banc, sous le
+                                 // test de consequence : escalier u_abs 1500/1650/1800/1920 a i_q 60) ; avant 1920, 1800, 1500
 #define TRIGGER_OFFSET_ADC_DYN 65 // avance du declenchement en mode dynamique : l'echantillonnage (45 ticks) finit 20 ticks AVANT
                                  // la commutation de la phase la plus chargee (EBiCS : 10, echantillon 10 ticks apres le front)
 #undef VOLTAGE_MIN
@@ -199,8 +199,10 @@
                                  // 4 essais en pic (E20D) ; ADC_SETTLE_TICKS (60) etait une estimation, 7 a 8 fois trop courte
 #define DYN_SEUIL_ROUTE (TRIGGER_DEFAULT + DYN_T_ECH - DYN_DTG - DYN_STAB_DEFAUT)   // 1560 : au-dela, la phase la plus chargee
                                  // n'est plus lisible au sommet et le declenchement la suit (route ; DYNAMIC_ADC_THRESHOLD ailleurs)
-#define DYN_CALME 100           // 30/10 soir : aucune commutation dans les 100 ticks avant la fin de l'echantillon (estimation,
-                                 // a mesurer a l'oscilloscope), sinon les voies ne sont pas donnees au trip
+#define DYN_CALME 300            // aucune commutation dans les 300 ticks avant la fin de l'echantillon, sinon les voies ne sont pas
+                                 // donnees au trip (revue Fangyan A3, tools/bench/calme_mesure.py sur les 4 anneaux en pic : les
+                                 // 63 lectures fausses a voie etablie ont une commutation 150 a 300 ticks avant, 97 % sous 300 ;
+                                 // avant 100, estime)
 #define DYN_SUITE_MAX 16         // periodes non mesurables consecutives au plus (modele : 9 a erps 180-400), puis la mesure passe
                                  // telle quelle (garde de saturation, puis trip)
 #define ROUTE_COUPLE_REPRISE_MV 30 // 30/10 : reprise de l'assistance si couple > zero + 30 mV (avant 10 : bruit 737-747 mV au repos)

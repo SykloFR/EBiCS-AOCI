@@ -50,6 +50,7 @@
  *   E212  1 Hz  frequence reelle de reg_ADC_processing (build route seulement, 27/10) : debordements de TIMER1 par seconde
  *               (u16), appels de reg_ADC_processing par seconde (u16), tours de boucle par seconde (u16, sature), part
  *               PWM actif (u8, ms / 4)
+ *   E214  1 Hz  entrees dans ADC0_1_IRQHandler par seconde (u16, attendu 16 500, build route, revue Fangyan B3 du 30/10)
  *   E213  1 Hz  afficheur (build route seulement, 29/10, inc/afficheur_aoci.h) : trames de l'afficheur (source 0x13)
  *               traitees (u16, reboucle), age de la derniere (u16, ms, 65535 = sature ou aucune), periodes de mesure tenues
  *               (u8, modulo 256, 30/10), saturations isolees rejetees (u8, modulo 256, 30/10 ; avant : code 0x6300 et 0x6303), etat
@@ -131,6 +132,7 @@ extern ext_t route_ext;                          /* afficheur (29/10) : etat de 
 extern uint8_t level_counter;                    /* CAN_Display.c : trames 0x6300 identiques de suite (0-4) */
 extern volatile uint16_t route_glitchs;   /* main.c (30/10) : mesure dynamique */
 extern volatile uint8_t route_taux_tenues;
+extern volatile uint16_t route_adc_hz;   /* main.c : entrees dans l'ISR ADC par seconde (E214) */
 #endif
 extern uint8_t bench_ph_max, bench_walk_max;
 extern volatile int8_t cap_ph[3][CAP_N];
@@ -181,7 +183,7 @@ static bench_trame_t trames[] = {
     {0xE2, 0x0D,   20, 0, 0}, {0xE2, 0x0E, 1000, 0, 0},
 #ifdef ROUTE_BUILD
     {0xE2, 0x0F,  100, 0, 0}, {0xE2, 0x10,   20, 0, 0}, {0xE2, 0x11,  100, 0, 0}, {0xE2, 0x12, 1000, 0, 0},
-    {0xE2, 0x13, 1000, 0, 0},
+    {0xE2, 0x13, 1000, 0, 0}, {0xE2, 0x14, 1000, 0, 0},
 #endif
 };
 #define NB_TRAMES (sizeof(trames) / sizeof(trames[0]))
@@ -520,6 +522,9 @@ static uint8_t remplir(const bench_trame_t* t, uint8_t* d)
     case 0xE211:
         put16(d + 1, couple_zero.zero); put16(d + 3, couple_zero.dernier); d[5] = couple_zero.n;
         put16(d + 6, route_ticks_sans_hall);           /* ticks de TIMER1 depuis le dernier front Hall (moe_rotation.h) */
+        return 8;
+    case 0xE214:
+        put16(d + 1, route_adc_hz);
         return 8;
     case 0xE213:
         put16(d + 1, route_aff_rx.n); put16(d + 3, aff_rx_age(&route_aff_rx, bench_ms));

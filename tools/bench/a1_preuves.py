@@ -58,7 +58,7 @@ for k, v in socle.items():
 timer_l5 = "socle_l5_pas(&route_l5" in pp_main
 print(f"   timer L5 du socle (2 min / 8 min) dans le firmware : {'present' if timer_l5 else 'absent'}")
 img_pi = open(IMG, "rb").read()   # limit_i (offset 8) et limit_output (offset 10) ecrits par un seul mot
-umax = 1920 if ROUTE else 1500   # 30/10 soir : U_MAX_BENCH 1920 en route (lot B3 : 1800)
+umax = 1800 if ROUTE else 1500   # revue Fangyan A4 (30/10) : 1800 en route pour le premier roulage
 mot_34, mot_max = struct.pack("<I", (umax << 16) | (umax * 3 // 4)), struct.pack("<I", (umax << 16) | umax)
 print(f"   mots limit_i | limit_output << 16 dans l'image : {umax * 3 // 4}|{umax} x{img_pi.count(mot_34)}, {umax}|{umax} x{img_pi.count(mot_max)}")
 plafond_iq = img_pi.count(mot_max) >= 1 and img_pi.count(mot_34) >= 1   # i_q a _U_MAX, i_d garde 3/4
@@ -117,7 +117,7 @@ ancien = "dyn_adc_state(q31_rotorposition_absolute);" in pp_main
 tenue = "dyn_mesure_periode(&route_mes, route_tenue, route_dyn_valides, f4_t, f4_mes," in pp_main   # revue du 30/10 soir
 placer = "route_dyn_placer();" in pp_main and "route_dec_prec = d;" in pp_main   # 30/10 : CC4 precharge, decision cumulee
 garde = "route_glitchs++" in pp_main and "route_ph_val" not in pp_main
-pi_suspendu = "FOC_tenue(q31_rotorposition_absolute, &MS);" in pp_main
+pi_suspendu = "FOC_tenue(q31_rotorposition_absolute, &MS);" in pp_main and "route_n_adc++" in pp_main   # + compteur B3
 print(f"   dyn_decision_robuste appelee : {robuste} ; dyn_adc_state appelee par l'ISR : {ancien} ; chemin de donnees dyn_mesure_periode : {tenue} ; placement avant les CCR et decision cumulee : {placer} ; garde de saturation (sans route_ph_val) : {garde} ; PI suspendu en periode tenue : {pi_suspendu}")
 print("route : placement robuste, ancien appel retire, trip sur courants valides :" if ROUTE else "banc : dyn_adc_state d'EBiCS (inchange) :",
       "OK" if ((robuste and not ancien and tenue and placer and garde and pi_suspendu) if ROUTE else (ancien and not robuste and not tenue and not pi_suspendu)) else "A VERIFIER")
@@ -329,14 +329,14 @@ for k in ("13", "32", "26", "64", "45", "51"):
 print("valeurs initiales = bench_hall_rotation.h :", "OK" if ok_t else "A VERIFIER (en-tete absent ou valeurs differentes)")
 
 section("Echelle de courant (decision de revue du 27/10/2026)")
-mv = {k: v for k, v in re.findall(r"^#define (TRIGGER_OFFSET_ADC_DYN|DYN_STAB_DEFAUT|DYN_STAB_DYN|DYN_SUITE_MAX|U_MAX_BENCH|PH_CURRENT_TRIP|PH_CURRENT_MAX|BENCH_WALK_ILIM_MAX|BRIDE_ERPS_DEBUT|BRIDE_ERPS_FIN|SPEEDLIMIT|ROUTE_NIVEAU_MAX|ROUTE_VARIANTE_REPLI|BATTERYCURRENT_MAX|VOLTAGE_MIN|REVERSE|CURRENT_SIGN) (\S+)", macros, re.M)}
+mv = {k: v for k, v in re.findall(r"^#define (TRIGGER_OFFSET_ADC_DYN|DYN_STAB_DEFAUT|DYN_STAB_DYN|DYN_SUITE_MAX|DYN_CALME|U_MAX_BENCH|PH_CURRENT_TRIP|PH_CURRENT_MAX|BENCH_WALK_ILIM_MAX|BRIDE_ERPS_DEBUT|BRIDE_ERPS_FIN|SPEEDLIMIT|ROUTE_NIVEAU_MAX|ROUTE_VARIANTE_REPLI|BATTERYCURRENT_MAX|VOLTAGE_MIN|REVERSE|CURRENT_SIGN) (\S+)", macros, re.M)}
 print("macros :", mv)
 if ROUTE:
     attendu_r = {"PH_CURRENT_TRIP": "245", "PH_CURRENT_MAX": "130", "SPEEDLIMIT": "1500", "ROUTE_NIVEAU_MAX": "9",
-                 "BATTERYCURRENT_MAX": "18000", "U_MAX_BENCH": "1920L", "TRIGGER_OFFSET_ADC_DYN": "65", "DYN_STAB_DEFAUT": "450", "DYN_STAB_DYN": "350", "DYN_SUITE_MAX": "16", "VOLTAGE_MIN": "1773", "REVERSE": "1", "CURRENT_SIGN": "1",
+                 "BATTERYCURRENT_MAX": "18000", "U_MAX_BENCH": "1800L", "TRIGGER_OFFSET_ADC_DYN": "65", "DYN_STAB_DEFAUT": "450", "DYN_STAB_DYN": "350", "DYN_SUITE_MAX": "16", "DYN_CALME": "300", "VOLTAGE_MIN": "1773", "REVERSE": "1", "CURRENT_SIGN": "1",
                  "ROUTE_VARIANTE_REPLI": "2"}
     ecarts = {k: (mv.get(k), v) for k, v in attendu_r.items() if mv.get(k) != v}
-    print("seuils route lot B3 (trip de harnais 245 / 130 / 15 km/h / niveau 5 / 18 A / U_MAX 1920 / avance dyn 65 / etablissement 450 et 350 / suite tenue 16 / 30 V / REVERSE +1 / CURRENT_SIGN +1) :",
+    print("seuils route lot B3 (trip de harnais 245 / 130 / 15 km/h / niveau 5 / 18 A / U_MAX 1800 / avance dyn 65 / etablissement 450 et 350 / calme 300 / suite tenue 16 / 30 V / REVERSE +1 / CURRENT_SIGN +1) :",
           "OK" if not ecarts else f"A VERIFIER {ecarts}")
 else:
     print("banc : pas de repli de variante (ROUTE_VARIANTE_REPLI absente) :", "OK" if "ROUTE_VARIANTE_REPLI" not in mv else "A VERIFIER")
