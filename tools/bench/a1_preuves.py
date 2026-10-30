@@ -52,10 +52,11 @@ for k, v in chemins.items():
 socle = {"bride (limite - 2) -> (limite + 2)": "socle_bride(MS.i_q_setpoint_temp" in pp_main,
          "plafond batterie par niveau": "MP.battery_current_max=socle_ibat_niveau_mA(" in pp_main,
          "phase 1,75 x batterie du niveau": "phase_current_max_scaled=socle_phase_niveau_pts(" in pp_main,
-         "timer L5": "socle_l5_pas(&route_l5" in pp_main,
          "niveau demande ecrit par l'afficheur": "route_niveau_demande=MS->assist_level" in pp_can}
 for k, v in socle.items():
     print(f"   socle (28/10) {k:38s} : {'present' if v else 'absent'}")
+timer_l5 = "socle_l5_pas(&route_l5" in pp_main
+print(f"   timer L5 du socle (2 min / 8 min) dans le firmware : {'present' if timer_l5 else 'absent'}")
 img_pi = open(IMG, "rb").read()   # limit_i (offset 8) et limit_output (offset 10) ecrits par un seul mot
 umax = 1800 if ROUTE else 1500   # lot B3 (30/10) : U_MAX_BENCH 1800 en route
 mot_34, mot_max = struct.pack("<I", (umax << 16) | (umax * 3 // 4)), struct.pack("<I", (umax << 16) | umax)
@@ -67,10 +68,10 @@ if ROUTE:
 else:
     print("banc : integrale du PI de i_q a 3/4 (inchange) :", "OK" if not plafond_iq else "A VERIFIER")
 if ROUTE:
-    print("route : socle de conformite present (bride, plafonds par niveau, timer L5, niveau demande) :",
-          "OK" if all(socle.values()) else "A VERIFIER")
+    print("route : socle de conformite present (bride, plafonds par niveau, niveau demande), timer L5 retire (30/10) :",
+          "OK" if all(socle.values()) and not timer_l5 else "A VERIFIER")
 else:
-    print("banc : pas de socle de conformite :", "OK" if not any(socle.values()) else "A VERIFIER")
+    print("banc : pas de socle de conformite :", "OK" if not any(socle.values()) and not timer_l5 else "A VERIFIER")
 if ROUTE:
     print("route : les quatre chemins qui changent la bride ou les parametres en marche sont absents :",
           "OK" if not any(chemins.values()) else "A VERIFIER")
@@ -102,6 +103,12 @@ if ROUTE:
 else:
     print("banc : profil EBiCS et pas de plancher (inchange) :",
           "OK" if profil is None and not plancher and profil_ebics else "A VERIFIER")
+
+section("E100 (30/10) : courants vus par le trip en route")
+e100_trip = "bench_can_sample(route_ph_trip[0], route_ph_trip[1], route_ph_trip[2])" in pp_main
+print(f"   E100 alimentee par les entrees du trip : {'oui' if e100_trip else 'non'}")
+print("route : E100 = courants vus par le trip :" if ROUTE else "banc : E100 = courants bruts (inchange) :",
+      "OK" if e100_trip == ROUTE else "A VERIFIER")
 
 section("Forte modulation (30/10) : avance du declenchement dynamique dans dyn_adc_state")
 avances = sorted(set(re.findall(r"\(switchtime\[[012]\]-(\d+)\)", pp_main)))

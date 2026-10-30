@@ -189,6 +189,8 @@
 #define ROUTE_PROFIL_NIVEAU {31, 43, 57, 67, 110}   // loi type OSF (29/10, loi-type-osf-attendu-20261029.md) : profil plat
                                  // par niveau 1 a 5, vise P_bat / P_pedale = 1,6 / 2,2 / 2,8 / 3,4 / 5,6 (Z8-OSF HYBRID),
                                  // cale sur eta = 0,83 (confirme par le calage du 29/10) ; niveau 3 : 63 -> 57 (mesure 3,1, lot B3)
+#define ROUTE_TIMER_L5 0        // 30/10 (Yanni) : timer L5 2 min / 8 min retire du firmware moteur, l'afficheur Syklo le gerera
+                                 // (homologation : equilibre thermique du moteur) ; 1 = timer du socle (28/10)
 #define ROUTE_VARIANTE_REPLI 2   // octet 0x0803D800 vierge (0xFF, lu apres le flash route du 27/10) -> variante 2 mesuree
                                  // sur ce controleur (inc/variante.h) ; signale par le bit 4 de E203
 #endif

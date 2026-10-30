@@ -368,6 +368,9 @@ uint8_t bench_ph_max = PH_CURRENT_MAX, bench_walk_max = BENCH_WALK_ILIM_MAX;
    qui place le declenchement CC4 (dyn_adc_state, offset_cal_pont_50) ; au reset CC4 = TRIGGER_DEFAULT, trois voies lisibles.
    f4_refus : nombre de periodes ou F4 a ete refusee, par raison (indice f4_resultat_t, sature a 0xFFFF), lecture SWD. */
 volatile uint8_t f4_masque = F4_MASQUE_TOUTES;
+#ifdef ROUTE_BUILD
+volatile int16_t route_ph_trip[3] = {0, 0, 0};    /* 30/10 : entrees du trip de la derniere periode, pour E100 */
+#endif
 volatile uint16_t f4_refus[4] = {0, 0, 0, 0};
 /* PORTE 4, diagnostic du demarrage du pont et correctif candidat F3 (26/10/2026 : defaut 3 des le palier u_d 0 sur le velo,
    zeros pourtant identiques a 1 pt pres) : capture des CAP_N premieres periodes PWM apres chaque MOE = 1 (courants apres
@@ -855,8 +858,12 @@ int main(void)
     	{   /* niveau demande par l'afficheur, borne au premier roulage (niveau 1 seulement), puis timer du niveau 5 (socle 28/10) */
     		uint8_t dem = route_niveau_demande;
     		if(dem > ROUTE_NIVEAU_MAX) dem = ROUTE_NIVEAU_MAX;
+#if ROUTE_TIMER_L5
     		MS.assist_level = socle_code_niveau[socle_l5_pas(&route_l5, bt_ecart(&route_l5_prec, route_ticks_4k),
     		                                                  level_to_array_element[dem])];
+#else
+    		MS.assist_level = socle_code_niveau[level_to_array_element[dem]];   /* 30/10 : timer L5 laisse a l'afficheur (Yanni) */
+#endif
     	}
 #endif
     	// update scaled current and speed
@@ -1850,7 +1857,14 @@ void reg_ADC_processing(void)
 #endif
 #ifdef BENCH_BUILD
 	if(bench_ol_keepalive) bench_ol_keepalive--;   /* 4 kHz : 8000 = 2 s sans rafraichissement SWD avant arret de l'outil */
+#ifdef ROUTE_BUILD
+	/* 30/10 : E100 = courants vus par le trip, phase reconstruite comprise ; avant, la phase 3 brute en mode dynamique
+	   (etat 1, non reconstruite car inutile a la FOC) et des valeurs flottantes pont coupe faussaient efficace et crete */
+	if(TIMER_CCHP(TIMER0) & TIMER_CCHP_POEN) bench_can_sample(route_ph_trip[0], route_ph_trip[1], route_ph_trip[2]);
+	else bench_can_sample(0, 0, 0);
+#else
 	bench_can_sample(i16_ph1_current, i16_ph2_current, i16_ph3_current);   /* courants efficaces de la trame E100 */
+#endif
 #endif
 	suivre_hall();                                  /* garde de calibration : Hall stable 50 ms */
 #ifdef ROUTE_BUILD
@@ -2229,6 +2243,9 @@ void ADC0_1_IRQHandler(void)
     	/* F4 : trois voies lisibles -> par phase, la plus grande de la reconstruction et de la mesure (f4_mode_commun.h) */
     	int16_t f4_t[3];
     	f4_entrees_trip(f4_t, i16_ph1_current, i16_ph2_current, f4_mes, f4_m);
+#ifdef ROUTE_BUILD
+    	route_ph_trip[0] = f4_t[0]; route_ph_trip[1] = f4_t[1]; route_ph_trip[2] = f4_t[2];
+#endif
     	if(!pt_gel){                              /* capture avant trip : la periode est enregistree avant le test */
     		pt_ph[0][pt_idx] = CAP_SAT(f4_t[0]);
     		pt_ph[1][pt_idx] = CAP_SAT(f4_t[1]);
