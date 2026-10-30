@@ -129,7 +129,8 @@ extern volatile uint16_t pedalier_exti12;
 extern aff_rx_t route_aff_rx;                    /* afficheur (29/10) : releve des trames recues (CAN_Display.c) */
 extern ext_t route_ext;                          /* afficheur (29/10) : etat de l'extinction (main.c) */
 extern uint8_t level_counter;                    /* CAN_Display.c : trames 0x6300 identiques de suite (0-4) */
-extern volatile uint16_t route_dyn_tenues, route_glitchs;   /* main.c (30/10) : mesure dynamique */
+extern volatile uint16_t route_glitchs;   /* main.c (30/10) : mesure dynamique */
+extern volatile uint8_t route_taux_tenues;
 #endif
 extern uint8_t bench_ph_max, bench_walk_max;
 extern volatile int8_t cap_ph[3][CAP_N];
@@ -522,7 +523,7 @@ static uint8_t remplir(const bench_trame_t* t, uint8_t* d)
         return 8;
     case 0xE213:
         put16(d + 1, route_aff_rx.n); put16(d + 3, aff_rx_age(&route_aff_rx, bench_ms));
-        d[5] = (uint8_t)route_dyn_tenues; d[6] = (uint8_t)route_glitchs;   /* 30/10 : periodes tenues, saturations rejetees (modulo 256) */
+        d[5] = route_taux_tenues; d[6] = (uint8_t)route_glitchs;   /* 30/10 : part de periodes tenues (1/256, 4096 periodes), butees rejetees (modulo 256) */
         d[7] = (uint8_t)((route_ext.etat & 0x03u) | (route_ext.appui ? 0x04u : 0u) | ((level_counter & 0x07u) << 3)
                          | (route_aff_rx.vu_6300 ? 0x40u : 0u) | ((CAN_RFIFO1(CAN0) & CAN_RFIFO1_RFO1) ? 0x80u : 0u));
         return 8;

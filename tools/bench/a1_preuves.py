@@ -114,12 +114,13 @@ print("route : E100 = courants vus par le trip :" if ROUTE else "banc : E100 = c
 section("Mesure dynamique robuste (30/10) : placement de la mesure apres la FOC, sur S(k-1) et S(k)")
 robuste = "dyn_decision_robuste(route_st_prec, sn," in pp_main
 ancien = "dyn_adc_state(q31_rotorposition_absolute);" in pp_main
-tenue = "route_tenue ? route_ph_val : f4_mes" in pp_main
+tenue = "dyn_mesure_periode(&route_mes, route_tenue, route_dyn_valides, f4_t, f4_mes," in pp_main   # revue du 30/10 soir
 placer = "route_dyn_placer();" in pp_main and "route_dec_prec = d;" in pp_main   # 30/10 : CC4 precharge, decision cumulee
-garde = "route_glitch_prec = 1;" in pp_main
-print(f"   dyn_decision_robuste appelee : {robuste} ; dyn_adc_state appelee par l'ISR : {ancien} ; trip sur courants tenus : {tenue} ; placement avant les CCR et decision cumulee : {placer} ; garde de saturation isolee : {garde}")
+garde = "route_glitchs++" in pp_main and "route_ph_val" not in pp_main
+pi_suspendu = "FOC_tenue(q31_rotorposition_absolute, &MS);" in pp_main
+print(f"   dyn_decision_robuste appelee : {robuste} ; dyn_adc_state appelee par l'ISR : {ancien} ; chemin de donnees dyn_mesure_periode : {tenue} ; placement avant les CCR et decision cumulee : {placer} ; garde de saturation (sans route_ph_val) : {garde} ; PI suspendu en periode tenue : {pi_suspendu}")
 print("route : placement robuste, ancien appel retire, trip sur courants valides :" if ROUTE else "banc : dyn_adc_state d'EBiCS (inchange) :",
-      "OK" if ((robuste and not ancien and tenue and placer and garde) if ROUTE else (ancien and not robuste and not garde)) else "A VERIFIER")
+      "OK" if ((robuste and not ancien and tenue and placer and garde and pi_suspendu) if ROUTE else (ancien and not robuste and not tenue and not pi_suspendu)) else "A VERIFIER")
 
 section("Forte modulation (30/10) : avance du declenchement dynamique dans dyn_adc_state")
 avances = sorted(set(re.findall(r"\(switchtime\[[012]\]-(\d+)\)", pp_main)))
@@ -328,14 +329,14 @@ for k in ("13", "32", "26", "64", "45", "51"):
 print("valeurs initiales = bench_hall_rotation.h :", "OK" if ok_t else "A VERIFIER (en-tete absent ou valeurs differentes)")
 
 section("Echelle de courant (decision de revue du 27/10/2026)")
-mv = {k: v for k, v in re.findall(r"^#define (TRIGGER_OFFSET_ADC_DYN|U_MAX_BENCH|PH_CURRENT_TRIP|PH_CURRENT_MAX|BENCH_WALK_ILIM_MAX|BRIDE_ERPS_DEBUT|BRIDE_ERPS_FIN|SPEEDLIMIT|ROUTE_NIVEAU_MAX|ROUTE_VARIANTE_REPLI|BATTERYCURRENT_MAX|VOLTAGE_MIN|REVERSE|CURRENT_SIGN) (\S+)", macros, re.M)}
+mv = {k: v for k, v in re.findall(r"^#define (TRIGGER_OFFSET_ADC_DYN|DYN_STAB_DEFAUT|DYN_STAB_DYN|DYN_SUITE_MAX|U_MAX_BENCH|PH_CURRENT_TRIP|PH_CURRENT_MAX|BENCH_WALK_ILIM_MAX|BRIDE_ERPS_DEBUT|BRIDE_ERPS_FIN|SPEEDLIMIT|ROUTE_NIVEAU_MAX|ROUTE_VARIANTE_REPLI|BATTERYCURRENT_MAX|VOLTAGE_MIN|REVERSE|CURRENT_SIGN) (\S+)", macros, re.M)}
 print("macros :", mv)
 if ROUTE:
     attendu_r = {"PH_CURRENT_TRIP": "245", "PH_CURRENT_MAX": "98", "SPEEDLIMIT": "1500", "ROUTE_NIVEAU_MAX": "9",
-                 "BATTERYCURRENT_MAX": "18000", "U_MAX_BENCH": "1800L", "TRIGGER_OFFSET_ADC_DYN": "65", "VOLTAGE_MIN": "1773", "REVERSE": "1", "CURRENT_SIGN": "1",
+                 "BATTERYCURRENT_MAX": "18000", "U_MAX_BENCH": "1800L", "TRIGGER_OFFSET_ADC_DYN": "65", "DYN_STAB_DEFAUT": "450", "DYN_STAB_DYN": "350", "DYN_SUITE_MAX": "16", "VOLTAGE_MIN": "1773", "REVERSE": "1", "CURRENT_SIGN": "1",
                  "ROUTE_VARIANTE_REPLI": "2"}
     ecarts = {k: (mv.get(k), v) for k, v in attendu_r.items() if mv.get(k) != v}
-    print("seuils route lot B3 (trip de harnais 245 / 98 / 15 km/h / niveau 5 / 18 A / U_MAX 1800 / avance dyn 65 / 30 V / REVERSE +1 / CURRENT_SIGN +1) :",
+    print("seuils route lot B3 (trip de harnais 245 / 98 / 15 km/h / niveau 5 / 18 A / U_MAX 1800 / avance dyn 65 / etablissement 450 et 350 / suite tenue 16 / 30 V / REVERSE +1 / CURRENT_SIGN +1) :",
           "OK" if not ecarts else f"A VERIFIER {ecarts}")
 else:
     print("banc : pas de repli de variante (ROUTE_VARIANTE_REPLI absente) :", "OK" if "ROUTE_VARIANTE_REPLI" not in mv else "A VERIFIER")

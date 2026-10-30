@@ -166,6 +166,22 @@ q31_t PI_control (PI_control_t* PI_c)
 }
 
 
+#ifdef ROUTE_BUILD
+/* 30/10 (revue du soir) : periode non mesurable (inc/dyn_adc_robuste.h) : PI suspendu, u_d et u_q gardes, le vecteur tension
+   tourne avec l'angle. i_d et i_q filtres inchanges. Meme convention d'angle que FOC_calculation. */
+void FOC_tenue(q31_t q31_teta, MotorState_t* MS_FOC)
+{
+	q31_t q31_u_alpha = 0, q31_u_beta = 0;
+	q31_t sinevalue = 0, cosinevalue = 0;
+
+	arm_sin_cos_q31(q31_teta, &sinevalue, &cosinevalue);
+	if(sinevalue==-2147483648)sinevalue=-2147483647;
+	if(cosinevalue==-2147483648)cosinevalue=-2147483647;
+	arm_inv_park_q31(MS_FOC->u_d, MS_FOC->u_q, &q31_u_alpha, &q31_u_beta, -sinevalue, cosinevalue);
+	svpwm(q31_u_alpha, q31_u_beta);
+}
+#endif
+
 #ifdef BENCH_BUILD
 /* Outil de banc « vecteur fixe » (porte 4, A5), build banc seulement : tension u_d a l'angle electrique q31_teta, u_q = 0, sans PI.
    Meme convention d'angle que FOC_calculation (inverse de Park avec -sin) : un angle releve ici est directement un angle FOC.

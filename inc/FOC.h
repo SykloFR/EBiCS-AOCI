@@ -12,6 +12,9 @@
 //exportetd functions
 void FOC_calculation(int16_t int16_i_as, int16_t int16_i_bs, q31_t q31_teta, int16_t int16_i_q_target, MotorState_t* MS_FOC, MotorParams_t* MP_FOC);
 q31_t PI_control (PI_control_t* PI_c);
+#ifdef ROUTE_BUILD
+void FOC_tenue(q31_t q31_teta, MotorState_t* MS_FOC);
+#endif
 #ifdef BENCH_BUILD
 void bench_ol_vector(int16_t int16_i_as, int16_t int16_i_bs, q31_t q31_teta, int16_t int16_u_d, MotorState_t* MS_FOC);
 #endif

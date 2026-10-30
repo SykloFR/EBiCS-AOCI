@@ -191,6 +191,13 @@
                                  // cale sur eta = 0,83 (confirme par le calage du 29/10) ; niveau 3 : 63 -> 57 (mesure 3,1, lot B3)
 #define DYN_T_ECH 45             // 30/10 : echantillonnage ADC en ticks (7,5 cycles x 6), fin = valeur retenue
 #define DYN_DTG 25               // 30/10 : temps mort (TIMER0 BDTR = 0x0C19)
+#define DYN_STAB_DEFAUT 450      // 30/10 (revue du soir) : conduction du bras bas avant la fin de l'echantillon, en ticks, pour une
+#define DYN_STAB_DYN 350         // lecture juste, au sommet (defaut) et en declenchement deplace : mesure sur les anneaux figes des
+                                 // 4 essais en pic (E20D) ; ADC_SETTLE_TICKS (60) etait une estimation, 7 a 8 fois trop courte
+#define DYN_SEUIL_ROUTE (TRIGGER_DEFAULT + DYN_T_ECH - DYN_DTG - DYN_STAB_DEFAUT)   // 1560 : au-dela, la phase la plus chargee
+                                 // n'est plus lisible au sommet et le declenchement la suit (route ; DYNAMIC_ADC_THRESHOLD ailleurs)
+#define DYN_SUITE_MAX 16         // periodes non mesurables consecutives au plus (modele : 9 a erps 180-400), puis la mesure passe
+                                 // telle quelle (garde de saturation, puis trip)
 #define ROUTE_COUPLE_REPRISE_MV 30 // 30/10 : reprise de l'assistance si couple > zero + 30 mV (avant 10 : bruit 737-747 mV au repos)
 #define ROUTE_TIMER_L5 0        // 30/10 (Yanni) : timer L5 2 min / 8 min retire du firmware moteur, l'afficheur Syklo le gerera
                                  // (homologation : equilibre thermique du moteur) ; 1 = timer du socle (28/10)
