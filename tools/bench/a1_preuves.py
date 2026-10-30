@@ -97,8 +97,8 @@ plancher = "loi_osf_plancher(MS.i_q_setpoint_temp, MS.cadence)" in pp_main
 profil_ebics = "assist_profile[k][l]=(k+1)*20" in pp_parser
 print(f"   profil route {profil} ; profil EBiCS (k+1) x 20 present : {profil_ebics} ; plancher dans update_setpoint : {plancher}")
 if ROUTE:
-    print("route : profil 31 / 43 / 63 / 67 / 110 et plancher de cadence :",
-          "OK" if profil == [31, 43, 63, 67, 110] and plancher and not profil_ebics else "A VERIFIER")
+    print("route : profil 31 / 43 / 57 / 67 / 110 et plancher de cadence :",
+          "OK" if profil == [31, 43, 57, 67, 110] and plancher and not profil_ebics else "A VERIFIER")
 else:
     print("banc : profil EBiCS et pas de plancher (inchange) :",
           "OK" if profil is None and not plancher and profil_ebics else "A VERIFIER")
