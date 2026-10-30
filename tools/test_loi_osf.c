@@ -40,19 +40,19 @@ int main(void)
     CHECK(mono, "plancher decroissant avec la cadence");
 
     /* 2. profil route */
-    static const int attendu[5] = {31, 43, 63, 67, 110};
+    static const int attendu[5] = {31, 43, 57, 67, 110};   /* lot B3 (30/10) : niveau 3 63 -> 57 */
     int ok = 1;
     for (int k = 0; k < 5; k++) if (profil_route[k] != attendu[k]) ok = 0;
-    CHECK(ok, "ROUTE_PROFIL_NIVEAU = 31 / 43 / 63 / 67 / 110");
+    CHECK(ok, "ROUTE_PROFIL_NIVEAU = 31 / 43 / 57 / 67 / 110");
 
     /* 3. rapports a 50 tr/min (pas de plancher), couple filtre 190 mV (B1.3) et 300 mV, contre l'avant (20/40/60) */
     for (int t = 190; t <= 300; t += 110) {
         double r1 = (double)consigne(50, t, 31, 1, 1000) / consigne(50, t, 20, 0, 1000);
         double r2 = (double)consigne(50, t, 43, 1, 1000) / consigne(50, t, 40, 0, 1000);
-        double r3 = (double)consigne(50, t, 63, 1, 1000) / consigne(50, t, 60, 0, 1000);
+        double r3 = (double)consigne(50, t, profil_route[2], 1, 1000) / consigne(50, t, 60, 0, 1000);
         printf("couple %d mV, 50 tr/min : niveau 1 x %.3f, niveau 2 x %.3f, niveau 3 x %.3f\n", t, r1, r2, r3);
         CHECK(fabs(r2 - 1.075) <= 0.03, "niveau 2 x %.3f (attendu 1,08)", r2);
-        CHECK(fabs(r3 - 1.05) <= 0.03, "niveau 3 x %.3f (attendu 1,05)", r3);
+        CHECK(fabs(r3 - 0.95) <= 0.03, "niveau 3 x %.3f (attendu 0,95 depuis le lot B3)", r3);
         CHECK(fabs(r1 - 1.55) <= 0.06, "niveau 1 x %.3f (attendu 1,55 ; consigne entiere de 6 a 18 pts : +-0,06)", r1);
     }
 

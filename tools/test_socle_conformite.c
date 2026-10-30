@@ -44,6 +44,16 @@ int main(void)
               "phase niveau %u ecretee a 60 (lot B2)", n);
     }
 
+    /* lot B3 (30/10) : base 18 A, plafond 98 : 6,48 / 10,8 / 12,96 / 15,12 / 18 A et 35 / 59 / 71 / 83 / 98 pts */
+    {
+        static const int32_t ib18[6] = {6480, 6480, 10800, 12960, 15120, 18000}, ph18[6] = {0, 35, 59, 71, 83, 98};
+        for (uint8_t n = 0; n < 6; n++) {
+            CHECK(socle_ibat_niveau_mA(n, 18000) == ib18[n], "18 A : Ibat niveau %u : %ld", n, (long)socle_ibat_niveau_mA(n, 18000));
+            int32_t p18 = socle_phase_niveau_pts(n, socle_ibat_niveau_mA(n, 18000), PTS_PAR_A_X100, 98);
+            CHECK(p18 == ph18[n], "18 A : phase niveau %u : %ld (attendu %ld)", n, (long)p18, (long)ph18[n]);
+        }
+    }
+
     /* 3. codes de niveau <-> indices (level_to_array_element de main.c) */
     {
         static const uint8_t level_to_array_element[10] = {0, 0, 1, 0, 2, 0, 3, 0, 4, 5};

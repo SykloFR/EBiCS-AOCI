@@ -169,21 +169,26 @@
    sauf PH_CURRENT_MAX ramene a 30 pts. _U_MAX reste U_MAX_BENCH (1500) : chaine ADC validee seulement CCR <= 1738. */
 #ifdef ROUTE_BUILD
 #undef PH_CURRENT_MAX
-#define PH_CURRENT_MAX 60        // ~19,1 A de phase (lot B2, 29/10 : palier du niveau 3, valeur de la config d'origine ; avant 45)
+#define PH_CURRENT_MAX 98        // ~31,2 A de phase (lot B3, 30/10 : 1,75 x 18 A du niveau 5 ; avant 60)
 #undef PH_CURRENT_TRIP
-#define PH_CURRENT_TRIP 150      // 47,8 A : trip de harnais, 2,5 x le plafond de phase du niveau 3 (lot B2, 29/10 ; avant 120),
+#define PH_CURRENT_TRIP 245      // 78 A : trip de harnais, 2,5 x le plafond de phase du niveau 5 (lot B3, 30/10 ; avant 150),
                                  // A REMONTER A 377 (production, 120 A) AVANT TOUT BUILD CLIENT
 #undef BATTERYCURRENT_MAX
-#define BATTERYCURRENT_MAX 15000 // mA : production (firmware AOCI 36V 15A)
+#define BATTERYCURRENT_MAX 18000 // mA : controleur 18 A (decision de Yanni, 30/10 ; avant 15000, firmware AOCI 36V 15A)
+#undef U_MAX_BENCH
+#define U_MAX_BENCH 1800L        // lot B3 (30/10) : +20 % de tension, CCR max ~1886 > 1810 -> mode dynamique a haute cadence,
+                                 // valide sur PC avec l'avance de 65 (host_test_adc_dyn) ; 1920 non mesurable proprement ; avant 1500
+#define TRIGGER_OFFSET_ADC_DYN 65 // avance du declenchement en mode dynamique : l'echantillonnage (45 ticks) finit 20 ticks AVANT
+                                 // la commutation de la phase la plus chargee (EBiCS : 10, echantillon 10 ticks apres le front)
 #undef VOLTAGE_MIN
 #define VOLTAGE_MIN 1773         // production : 30,0 V
 #undef SPEEDLIMIT
 #define SPEEDLIMIT 1500          // 15 km/h (x100) : plafond tant que la chaine ADC haute modulation n'est pas mesuree
-#define ROUTE_NIVEAU_MAX 6       // code assist_level (pas un nombre de niveaux) : 6 = niveau 3 de l'afficheur 5 niveaux
-                                 // (codes 2, 4, 6, 8, 9 = niveaux 1 a 5) ; lot B2, 29/10 : niveaux 1 a 3 (avant 4)
-#define ROUTE_PROFIL_NIVEAU {31, 43, 63, 67, 110}   // loi type OSF (29/10, loi-type-osf-attendu-20261029.md) : profil plat
+#define ROUTE_NIVEAU_MAX 9       // code assist_level (pas un nombre de niveaux) : 9 = niveau 5 de l'afficheur 5 niveaux
+                                 // (codes 2, 4, 6, 8, 9 = niveaux 1 a 5) ; lot B3, 30/10 : niveaux 1 a 5 (avant 6)
+#define ROUTE_PROFIL_NIVEAU {31, 43, 57, 67, 110}   // loi type OSF (29/10, loi-type-osf-attendu-20261029.md) : profil plat
                                  // par niveau 1 a 5, vise P_bat / P_pedale = 1,6 / 2,2 / 2,8 / 3,4 / 5,6 (Z8-OSF HYBRID),
-                                 // cale sur eta = 0,83 ; avant (k+1) x 20 = 20 / 40 / 60 / 80 / 100
+                                 // cale sur eta = 0,83 (confirme par le calage du 29/10) ; niveau 3 : 63 -> 57 (mesure 3,1, lot B3)
 #define ROUTE_VARIANTE_REPLI 2   // octet 0x0803D800 vierge (0xFF, lu apres le flash route du 27/10) -> variante 2 mesuree
                                  // sur ce controleur (inc/variante.h) ; signale par le bit 4 de E203
 #endif

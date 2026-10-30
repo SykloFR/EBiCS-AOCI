@@ -2427,10 +2427,15 @@ int32_t map (int32_t x, int32_t in_min, int32_t in_max, int32_t out_min, int32_t
 
 /* REVUE-PUISSANCE P1 : une conversion injectee + stabilisation prend ADC_CONV_TICKS (120) + ADC_SETTLE_TICKS (60) = 180 ticks de 66 MHz (~2,7 us).
    Au-dela de DYNAMIC_ADC_THRESHOLD (1810), le declenchement CC4 suit la phase la plus chargee. */
+#ifdef ROUTE_BUILD
+#define DYN_AVANCE TRIGGER_OFFSET_ADC_DYN   /* lot B3 (30/10) : echantillon avant la commutation de la phase la plus chargee */
+#else
+#define DYN_AVANCE TRIGGER_OFFSET_ADC
+#endif
 void dyn_adc_state(q31_t angle){
 	if (switchtime[2]>switchtime[0] && switchtime[2]>switchtime[1]){
 		MS.char_dyn_adc_state = 1; // -90Ã‚Â° .. +30Ã‚Â°: Phase C at high dutycycles
-		if(switchtime[2]>DYNAMIC_ADC_THRESHOLD)timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_3,(switchtime[2]-TRIGGER_OFFSET_ADC));
+		if(switchtime[2]>DYNAMIC_ADC_THRESHOLD)timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_3,(switchtime[2]-DYN_AVANCE));
 		else timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_3,TRIGGER_DEFAULT);
 #ifdef BENCH_BUILD
 		f4_masque = (switchtime[2]>DYNAMIC_ADC_THRESHOLD) ? 0x03u : F4_MASQUE_TOUTES;   /* F4 : ph3 illisible si deplace */
@@ -2439,7 +2444,7 @@ void dyn_adc_state(q31_t angle){
 
 	if (switchtime[0]>switchtime[1] && switchtime[0]>switchtime[2]) {
 		MS.char_dyn_adc_state = 2; // +30Ã‚Â° .. 150Ã‚Â° Phase A at high dutycycles
-		if(switchtime[0]>DYNAMIC_ADC_THRESHOLD)timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_3,(switchtime[0]-TRIGGER_OFFSET_ADC));
+		if(switchtime[0]>DYNAMIC_ADC_THRESHOLD)timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_3,(switchtime[0]-DYN_AVANCE));
 		else timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_3,TRIGGER_DEFAULT);
 #ifdef BENCH_BUILD
 		f4_masque = (switchtime[0]>DYNAMIC_ADC_THRESHOLD) ? 0x06u : F4_MASQUE_TOUTES;   /* F4 : ph1 illisible si deplace */
@@ -2448,7 +2453,7 @@ void dyn_adc_state(q31_t angle){
 
 	if (switchtime[1]>switchtime[0] && switchtime[1]>switchtime[2]){
 		MS.char_dyn_adc_state = 3; // +150 .. -90Ã‚Â° Phase B at high dutycycles
-		if(switchtime[1]>DYNAMIC_ADC_THRESHOLD)timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_3,(switchtime[1]-TRIGGER_OFFSET_ADC));
+		if(switchtime[1]>DYNAMIC_ADC_THRESHOLD)timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_3,(switchtime[1]-DYN_AVANCE));
 		else timer_channel_output_pulse_value_config(TIMER0,TIMER_CH_3,TRIGGER_DEFAULT);
 #ifdef BENCH_BUILD
 		f4_masque = (switchtime[1]>DYNAMIC_ADC_THRESHOLD) ? 0x05u : F4_MASQUE_TOUTES;   /* F4 : ph2 illisible si deplace */

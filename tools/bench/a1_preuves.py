@@ -57,8 +57,9 @@ socle = {"bride (limite - 2) -> (limite + 2)": "socle_bride(MS.i_q_setpoint_temp
 for k, v in socle.items():
     print(f"   socle (28/10) {k:38s} : {'present' if v else 'absent'}")
 img_pi = open(IMG, "rb").read()   # limit_i (offset 8) et limit_output (offset 10) ecrits par un seul mot
-mot_34, mot_max = struct.pack("<I", (1500 << 16) | 1125), struct.pack("<I", (1500 << 16) | 1500)
-print(f"   mots limit_i | limit_output << 16 dans l'image : 1125|1500 x{img_pi.count(mot_34)}, 1500|1500 x{img_pi.count(mot_max)}")
+umax = 1800 if ROUTE else 1500   # lot B3 (30/10) : U_MAX_BENCH 1800 en route
+mot_34, mot_max = struct.pack("<I", (umax << 16) | (umax * 3 // 4)), struct.pack("<I", (umax << 16) | umax)
+print(f"   mots limit_i | limit_output << 16 dans l'image : {umax * 3 // 4}|{umax} x{img_pi.count(mot_34)}, {umax}|{umax} x{img_pi.count(mot_max)}")
 plafond_iq = img_pi.count(mot_max) >= 1 and img_pi.count(mot_34) >= 1   # i_q a _U_MAX, i_d garde 3/4
 print(f"   PI de i_q : integrale plafonnee a _U_MAX (29/10) : {'oui' if plafond_iq else 'non (3/4)'} ; PI de i_d a 3/4 : {'oui' if img_pi.count(mot_34) else 'non'}")
 if ROUTE:
@@ -101,6 +102,12 @@ if ROUTE:
 else:
     print("banc : profil EBiCS et pas de plancher (inchange) :",
           "OK" if profil is None and not plancher and profil_ebics else "A VERIFIER")
+
+section("Forte modulation (30/10) : avance du declenchement dynamique dans dyn_adc_state")
+avances = sorted(set(re.findall(r"\(switchtime\[[012]\]-(\d+)\)", pp_main)))
+print(f"   avances du declenchement dynamique dans dyn_adc_state : {avances}")
+print("route : avance 65 sur les trois phases :" if ROUTE else "banc : avance 10 d'EBiCS (inchange) :",
+      "OK" if avances == (["65"] if ROUTE else ["10"]) else "A VERIFIER")
 
 section("Temperature controleur (29/10) : table NTC d'origine en route, T_NTC ailleurs")
 nm_t = run("arm-none-eabi-nm", ELF)
@@ -302,14 +309,14 @@ for k in ("13", "32", "26", "64", "45", "51"):
 print("valeurs initiales = bench_hall_rotation.h :", "OK" if ok_t else "A VERIFIER (en-tete absent ou valeurs differentes)")
 
 section("Echelle de courant (decision de revue du 27/10/2026)")
-mv = {k: v for k, v in re.findall(r"^#define (PH_CURRENT_TRIP|PH_CURRENT_MAX|BENCH_WALK_ILIM_MAX|BRIDE_ERPS_DEBUT|BRIDE_ERPS_FIN|SPEEDLIMIT|ROUTE_NIVEAU_MAX|ROUTE_VARIANTE_REPLI|BATTERYCURRENT_MAX|VOLTAGE_MIN|REVERSE|CURRENT_SIGN) (\S+)", macros, re.M)}
+mv = {k: v for k, v in re.findall(r"^#define (TRIGGER_OFFSET_ADC_DYN|U_MAX_BENCH|PH_CURRENT_TRIP|PH_CURRENT_MAX|BENCH_WALK_ILIM_MAX|BRIDE_ERPS_DEBUT|BRIDE_ERPS_FIN|SPEEDLIMIT|ROUTE_NIVEAU_MAX|ROUTE_VARIANTE_REPLI|BATTERYCURRENT_MAX|VOLTAGE_MIN|REVERSE|CURRENT_SIGN) (\S+)", macros, re.M)}
 print("macros :", mv)
 if ROUTE:
-    attendu_r = {"PH_CURRENT_TRIP": "150", "PH_CURRENT_MAX": "60", "SPEEDLIMIT": "1500", "ROUTE_NIVEAU_MAX": "6",
-                 "BATTERYCURRENT_MAX": "15000", "VOLTAGE_MIN": "1773", "REVERSE": "1", "CURRENT_SIGN": "1",
+    attendu_r = {"PH_CURRENT_TRIP": "245", "PH_CURRENT_MAX": "98", "SPEEDLIMIT": "1500", "ROUTE_NIVEAU_MAX": "9",
+                 "BATTERYCURRENT_MAX": "18000", "U_MAX_BENCH": "1800L", "TRIGGER_OFFSET_ADC_DYN": "65", "VOLTAGE_MIN": "1773", "REVERSE": "1", "CURRENT_SIGN": "1",
                  "ROUTE_VARIANTE_REPLI": "2"}
     ecarts = {k: (mv.get(k), v) for k, v in attendu_r.items() if mv.get(k) != v}
-    print("seuils route lot B2 (trip de harnais 150 / 60 / 15 km/h / niveau 3 / 15 A / 30 V / REVERSE +1 / CURRENT_SIGN +1) :",
+    print("seuils route lot B3 (trip de harnais 245 / 98 / 15 km/h / niveau 5 / 18 A / U_MAX 1800 / avance dyn 65 / 30 V / REVERSE +1 / CURRENT_SIGN +1) :",
           "OK" if not ecarts else f"A VERIFIER {ecarts}")
 else:
     print("banc : pas de repli de variante (ROUTE_VARIANTE_REPLI absente) :", "OK" if "ROUTE_VARIANTE_REPLI" not in mv else "A VERIFIER")
