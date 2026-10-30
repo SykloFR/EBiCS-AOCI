@@ -100,7 +100,7 @@
         <div class="tuile"><div class="l">bride (km/h) / niveau</div><div class="v" id="vBride">–</div></div>
         <div class="tuile"><div class="l">u_abs / plafond</div><div class="v" id="vUabs">–</div></div>
         <div class="tuile"><div class="l">crête phase 50 ms (pts)</div><div class="v" id="vCrete">–</div></div>
-        <div class="tuile"><div class="l">ADC temp. PB1</div><div class="v" id="vPb1">–</div></div>
+        <div class="tuile" id="tTc"><div class="l">T contrôleur (°C) / ADC PB1</div><div class="v" id="vPb1">–</div></div>
       </div>
       <p class="note">Les valeurs ne s'affichent que pendant une capture : le bus n'est ouvert qu'à ce moment-là.</p>
     </section>
@@ -252,6 +252,19 @@ const PROTOCOLES = {
       att: "plafond et forte modulation ensemble, aucun défaut" },
     { id: "ARRET", d: 20, bpm: null, res: 10, txt: "Arrête de pédaler. Touche le boîtier : chaud ?",
       att: "consigne 0, pont coupé" } ] },
+  /* performance (30/10), essai-performance-niveau5-attendu-20261030.md : niveau 5, pic de puissance tenu 1 min, haute
+     cadence, puis refroidissement ; alarmes i_q 128, Ibat 19 A, T controleur 65 degres */
+  b5: { titre: "Performance : niveau 5, pic tenu 1 min (5 min 30)", nom: "perf-niveau5", iqMax: 128, phases: [
+    { id: "R0", d: 15, bpm: null, res: 10, txt: "Repos. Afficheur au niveau 5.", att: "niveau 9, défaut 0" },
+    { id: "W55", d: 30, bpm: 55, res: 20, txt: "Échauffement : 55 tr/min, appui normal.", att: "assistance établie" },
+    { id: "P50", d: 60, bpm: 50, res: 45, txt: "Résistance 45 %. 50 tr/min, appui FORT et régulier, tiens 1 min.",
+      att: "i_q au plafond 98, Ibat 13-15 A" },
+    { id: "P60", d: 60, bpm: 60, res: 50, txt: "Résistance 50 %. Monte à 60 tr/min, appui FORT, tiens 1 min : le pic.",
+      att: "Ibat 15-18 A tenu, aucun défaut" },
+    { id: "H75", d: 30, bpm: 75, res: 20, txt: "Résistance 20 %. Cadence haute : 75 tr/min, appui normal.",
+      att: "assistance encore présente, u_abs au plafond 1800" },
+    { id: "FROID", d: 135, bpm: null, res: 10, txt: "Arrête de pédaler. Touche le moteur et le boîtier. Ne coupe rien.",
+      att: "température qui redescend, consigne 0" } ] },
   libre: { titre: "Capture libre (durée réglable)", nom: "capture-libre-e013e55", libre: true, phases: [
     { id: "L", d: 60, bpm: null, txt: "Capture en cours.", att: "" } ] }
 };
@@ -398,12 +411,14 @@ async function sonder() {
     $("vMoe").textContent = L.moe === null ? "–" : (L.moe ? "actif" : "coupé");
     $("vDef").textContent = fx(L.defaut); $("vBat").textContent = fx(L.vbat, 1) + " / " + fx(L.ibat, 1);
     $("vHz").textContent = fx(L.regadc_hz); $("vBride").textContent = fx(L.vmax) + " / " + fx(L.niveau);
-    $("vUabs").textContent = fx(L.uabs) + " / 1496"; $("vCrete").textContent = fx(L.crete); $("vPb1").textContent = fx(L.adc_pb1);
+    $("vUabs").textContent = fx(L.uabs) + " / " + (L.u_max || 1800); $("vCrete").textContent = fx(L.crete);
+    $("vPb1").textContent = fx(L.t_ctrl) + " / " + fx(L.adc_pb1); $("tTc").classList.toggle("mal", L.t_ctrl !== null && L.t_ctrl !== undefined && L.t_ctrl > 65);
     const sIq = seuilIq(), al = [];
     if (e.actif && L.defaut) al.push(`DÉFAUT ${L.defaut} : arrête et coupe l'alimentation`);
     if (e.actif && L.iq !== null && Math.abs(L.iq) > sIq) al.push(`i_q = ${L.iq} pts (> ${sIq}) : arrête et coupe l'alimentation`);
     if (e.actif && L.ibat !== null && L.ibat > 19) al.push(`Ibat = ${L.ibat} A (> 19) : arrête et coupe la batterie`);   /* lot B3 : 18 A */
     if (e.actif && L.vbat !== null && L.vbat > 5 && L.vbat < 31) al.push(`Vbat = ${L.vbat} V (< 31) : arrête`);
+    if (e.actif && L.t_ctrl !== null && L.t_ctrl !== undefined && L.t_ctrl > 65) al.push(`T contrôleur = ${L.t_ctrl} °C (> 65) : arrête de pédaler`);   /* 30/10 */
     if (e.actif && L.vitesse !== null && L.vitesse >= 17.5 && L.iq_amont > 0)
       al.push(`consigne ${L.iq_amont} pts à ${L.vitesse} km/h : bride non tenue, arrête`);
     $("tDef").classList.toggle("mal", !!L.defaut); $("tIq").classList.toggle("mal", L.iq !== null && Math.abs(L.iq) > sIq);

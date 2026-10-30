@@ -155,7 +155,7 @@ class Capture:
                         iq_cons=g(0xE000, "iq_cons"), iq=g(0xE000, "iq"), moe=g(0xE000, "moe"), defaut=g(0xE200, "defaut"),
                         vbat=g(0xE101, "vbat"), ibat=g(0xE101, "ibat"), regadc_hz=g(0xE212, "regadc_hz"),
                         zero_mV=g(0xE211, "zero_mV"), vmax=g(0xE20E, "vitesse_max_kmh"), git=g(0xE203, "git"),
-                        uabs=g(0xE001, "uabs"), crete=g(0xE100, "crete"), adc_pb1=g(0xE201, "adc_pb1"),
+                        uabs=g(0xE001, "uabs"), crete=g(0xE100, "crete"), adc_pb1=g(0xE201, "adc_pb1"), t_ctrl=g(0xE201, "t_ctrl"),
                         ph_max=g(0xE20E, "phase_current_max"))
             return dict(actif=self.actif(), nom=self.nom, ecoule=round(time.time() - self.t0, 1) if self.nom else None,
                         duree=self.duree, n=self.n, erreur=self.erreur, dossier=self.dossier, live=live)
