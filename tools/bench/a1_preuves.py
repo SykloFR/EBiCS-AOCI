@@ -111,6 +111,14 @@ print(f"   E100 alimentee par les entrees du trip : {'oui' if e100_trip else 'no
 print("route : E100 = courants vus par le trip :" if ROUTE else "banc : E100 = courants bruts (inchange) :",
       "OK" if e100_trip == ROUTE else "A VERIFIER")
 
+section("Mesure dynamique robuste (30/10) : placement de la mesure apres la FOC, sur S(k-1) et S(k)")
+robuste = "dyn_decision_robuste(route_st_prec, sn," in pp_main
+ancien = "dyn_adc_state(q31_rotorposition_absolute);" in pp_main
+tenue = "route_tenue ? route_ph_val : f4_mes" in pp_main
+print(f"   dyn_decision_robuste appelee : {robuste} ; dyn_adc_state appelee par l'ISR : {ancien} ; trip sur courants tenus : {tenue}")
+print("route : placement robuste, ancien appel retire, trip sur courants valides :" if ROUTE else "banc : dyn_adc_state d'EBiCS (inchange) :",
+      "OK" if ((robuste and not ancien and tenue) if ROUTE else (ancien and not robuste)) else "A VERIFIER")
+
 section("Forte modulation (30/10) : avance du declenchement dynamique dans dyn_adc_state")
 avances = sorted(set(re.findall(r"\(switchtime\[[012]\]-(\d+)\)", pp_main)))
 print(f"   avances du declenchement dynamique dans dyn_adc_state : {avances}")

@@ -50,6 +50,7 @@ OF SUCH DAMAGE.
 #include "pedalier_pd2.h"
 #include "couple_zero.h"
 #include "loi_osf.h"
+#include "dyn_adc_robuste.h"   /* 30/10 : mesure dynamique robuste au retard CC4 / CCR */
 #include "freq_diag.h"
 #include "moe_rotation.h"
 #include "base_temps.h"
@@ -370,6 +371,12 @@ uint8_t bench_ph_max = PH_CURRENT_MAX, bench_walk_max = BENCH_WALK_ILIM_MAX;
 volatile uint8_t f4_masque = F4_MASQUE_TOUTES;
 #ifdef ROUTE_BUILD
 volatile int16_t route_ph_trip[3] = {0, 0, 0};    /* 30/10 : entrees du trip de la derniere periode, pour E100 */
+/* 30/10 (correctif-mesure-dynamique-attendu-20261030.md) : placement de la mesure decide sur S(k-1) et S(k) ; periode non
+   mesurable -> l'ISR suivante garde les derniers courants valides (route_ph_val) */
+static uint16_t route_st_prec[3] = {_T >> 1, _T >> 1, _T >> 1};
+static uint8_t route_dyn_tenir = 0;
+static int16_t route_ph_val[3] = {0, 0, 0};
+volatile uint16_t route_dyn_tenues = 0;           /* periodes non mesurables (lecture SWD, sature) */
 #endif
 volatile uint16_t f4_refus[4] = {0, 0, 0, 0};
 /* PORTE 4, diagnostic du demarrage du pont et correctif candidat F3 (26/10/2026 : defaut 3 des le palier u_d 0 sur le velo,
@@ -2232,6 +2239,15 @@ void ADC0_1_IRQHandler(void)
 
 		} // end case
 
+#ifdef ROUTE_BUILD
+    /* 30/10 : periode declaree non mesurable par l'ISR precedente (route_dyn_adc) : derniers courants valides */
+    const uint8_t route_tenue = route_dyn_tenir;
+    if(route_tenue){
+    	i16_ph1_current = route_ph_val[0]; i16_ph2_current = route_ph_val[1]; i16_ph3_current = route_ph_val[2];
+    } else {
+    	route_ph_val[0] = i16_ph1_current; route_ph_val[1] = i16_ph2_current; route_ph_val[2] = i16_ph3_current;
+    }
+#endif
     /* A1 porte 4 (revue Fangyan, point 5) : surintensite verifiee APRES reconstruction, a chaque periode PWM, avant tout calcul.
        ph1 et ph2 sont valides dans les trois etats ; ph3 brute peut etre fausse en etat 1 (phase C la plus chargee) et n'y est
        pas reconstruite : la troisieme phase est donc toujours deduite des deux autres (somme des courants nulle).
@@ -2242,7 +2258,12 @@ void ADC0_1_IRQHandler(void)
 #ifdef BENCH_BUILD
     	/* F4 : trois voies lisibles -> par phase, la plus grande de la reconstruction et de la mesure (f4_mode_commun.h) */
     	int16_t f4_t[3];
+#ifdef ROUTE_BUILD
+    	f4_entrees_trip(f4_t, i16_ph1_current, i16_ph2_current, route_tenue ? route_ph_val : f4_mes,
+    	                route_tenue ? F4_MASQUE_TOUTES : f4_m);   /* 30/10 : periode tenue, le trip voit les courants valides */
+#else
     	f4_entrees_trip(f4_t, i16_ph1_current, i16_ph2_current, f4_mes, f4_m);
+#endif
 #ifdef ROUTE_BUILD
     	route_ph_trip[0] = f4_t[0]; route_ph_trip[1] = f4_t[1]; route_ph_trip[2] = f4_t[2];
 #endif
@@ -2255,7 +2276,11 @@ void ADC0_1_IRQHandler(void)
     		pt_av[0][pt_idx] = CAP_SAT(f4_av[0]);
     		pt_av[1][pt_idx] = CAP_SAT(f4_av[1]);
     		pt_av[2][pt_idx] = CAP_SAT(f4_av[2]);
+#ifdef ROUTE_BUILD
+    		pt_x[pt_idx] = (uint8_t)(((GPIO_ISTAT(GPIOC) >> 6) & 0x07u) | (route_tenue ? 0x80u : 0u));   /* b7 : periode tenue (30/10) */
+#else
     		pt_x[pt_idx] = (uint8_t)((GPIO_ISTAT(GPIOC) >> 6) & 0x07u);   /* b5 pose plus bas si la FOC tourne */
+#endif
     		pt_k = pt_idx;
     		pt_idx = (uint8_t)((pt_idx + 1u) % PT_N);
     		if(pt_n < PT_N) pt_n++;
@@ -2317,7 +2342,9 @@ void ADC0_1_IRQHandler(void)
     }
 
 	//get the Phase with highest duty cycle for dynamic phase current reading
+#ifndef ROUTE_BUILD
 	dyn_adc_state(q31_rotorposition_absolute);
+#endif
 
     //q31_rotorposition_absolute=(int16_t)((180.0/75.0)*(float)(1<<31));
     if(ui_8_PWM_ON_Flag && !safety_is_latched()){
@@ -2344,6 +2371,21 @@ void ADC0_1_IRQHandler(void)
 #endif
 
     }
+#ifdef ROUTE_BUILD
+    /* 30/10 : placement de la PROCHAINE mesure, apres la FOC, sur S(k-1) (route_st_prec) et S(k) (switchtime) : la conversion
+       suivante voit l'un ou l'autre selon que l'ISR finit avant ou apres le bas du compteur (CCR precharges) */
+    {
+    	const uint16_t sn[3] = {switchtime[0], switchtime[1], switchtime[2]};
+    	dyn_decision_t d = dyn_decision_robuste(route_st_prec, sn, DYNAMIC_ADC_THRESHOLD, TRIGGER_OFFSET_ADC_DYN, TRIGGER_DEFAULT,
+    	                                        DYN_T_ECH, ADC_SETTLE_TICKS, DYN_DTG, _T);
+    	timer_channel_output_pulse_value_config(TIMER0, TIMER_CH_3, d.cc4);
+    	MS.char_dyn_adc_state = d.etat;
+    	f4_masque = d.masque;
+    	route_dyn_tenir = d.tenir;
+    	if(d.tenir && route_dyn_tenues < 0xFFFFu) route_dyn_tenues++;
+    	route_st_prec[0] = sn[0]; route_st_prec[1] = sn[1]; route_st_prec[2] = sn[2];
+    }
+#endif
 #ifdef BENCH_BUILD
     pt_k = 0xFF; pt_tenu = 0;
 #endif

@@ -189,6 +189,8 @@
 #define ROUTE_PROFIL_NIVEAU {31, 43, 57, 67, 110}   // loi type OSF (29/10, loi-type-osf-attendu-20261029.md) : profil plat
                                  // par niveau 1 a 5, vise P_bat / P_pedale = 1,6 / 2,2 / 2,8 / 3,4 / 5,6 (Z8-OSF HYBRID),
                                  // cale sur eta = 0,83 (confirme par le calage du 29/10) ; niveau 3 : 63 -> 57 (mesure 3,1, lot B3)
+#define DYN_T_ECH 45             // 30/10 : echantillonnage ADC en ticks (7,5 cycles x 6), fin = valeur retenue
+#define DYN_DTG 25               // 30/10 : temps mort (TIMER0 BDTR = 0x0C19)
 #define ROUTE_COUPLE_REPRISE_MV 30 // 30/10 : reprise de l'assistance si couple > zero + 30 mV (avant 10 : bruit 737-747 mV au repos)
 #define ROUTE_TIMER_L5 0        // 30/10 (Yanni) : timer L5 2 min / 8 min retire du firmware moteur, l'afficheur Syklo le gerera
                                  // (homologation : equilibre thermique du moteur) ; 1 = timer du socle (28/10)

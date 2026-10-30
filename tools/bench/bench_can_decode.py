@@ -64,7 +64,7 @@ def decode(cle, d):
     if cle == 0xE20C:
         i8 = lambda i: struct.unpack_from("<b", d, i)[0]
         return dict(rang=u8(1), ud=i8(2) * 16, uq=i8(3) * 16, angle_deg=round(u8(4) * 360 / 256, 1), hall=d[5] & 7,
-                    cercle=d[5] >> 4 & 1, foc=d[5] >> 5 & 1, tenu=d[5] >> 6 & 1, pt_seq=u8(6), figee=d[7] & 1, pleine=d[7] >> 1 & 1)
+                    cercle=d[5] >> 4 & 1, foc=d[5] >> 5 & 1, tenu=d[5] >> 6 & 1, mesure_tenue=d[5] >> 7 & 1, pt_seq=u8(6), figee=d[7] & 1, pleine=d[7] >> 1 & 1)
     if cle == 0xE20D:
         i8 = lambda i: struct.unpack_from("<b", d, i)[0]
         return dict(rang=u8(1), av=(i8(2), i8(3), i8(4)), pt_seq=u8(6), figee=d[7] & 1, pleine=d[7] >> 1 & 1)
